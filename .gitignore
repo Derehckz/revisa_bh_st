@@ -1,0 +1,56 @@
+# Carpetas de años/meses (datos de trabajo, no necesarios para el código)
+# Se crean al ejecutar los scripts según RAIZ en config.py
+/[0-9][0-9][0-9][0-9]/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Entornos virtuales
+venv/
+.venv/
+env/
+.env/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Tests y cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Backups generados por los scripts (*_backup_*.zip)
+*_backup_*.zip
+
+# Archivos generados por los scripts (por si se ejecutan en la raíz)
+revision_carpetas.xlsx
+*.log
+
+# Sistema
+.DS_Store
+Thumbs.db

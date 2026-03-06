@@ -1,0 +1,101 @@
+# -*- coding: utf-8 -*-
+"""Funciones compartidas del proyecto Boletas de Honorarios."""
+from __future__ import annotations
+
+import re
+import os
+from datetime import datetime
+from typing import Any, List, Optional
+
+from rich.console import Console
+from rich.panel import Panel
+from colorama import init as colorama_init
+
+# Inicialización mínima para funciones utilitarias
+colorama_init(autoreset=True)
+console = Console()
+
+
+def seleccionar_opcion(lista: List[Any], mensaje: str, icono: str = "") -> Any:
+    """Selector de opciones en consola (retorna el elemento seleccionado)."""
+    console.print(Panel.fit(f"{icono} {mensaje}", style="cyan bold"))
+    for i, opt in enumerate(lista, 1):
+        console.print(f"[yellow]{i}.[/] {opt}")
+    while True:
+        try:
+            sel = int(console.input("[green]👉 Seleccione número:[/] ").strip())
+            if 1 <= sel <= len(lista):
+                return lista[sel - 1]
+        except (ValueError, TypeError):
+            pass
+        console.print("[red]⚠️ Opción inválida, intente de nuevo.[/red]")
+
+
+def validar_email(email: Optional[str]) -> bool:
+    """Valida formato básico de correo electrónico."""
+    if email is None or not str(email).strip():
+        return False
+    patron = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+    return bool(re.match(patron, str(email).strip()))
+
+
+def find_element_ignore_ns(root: Any, tag_name: str) -> Optional[Any]:
+    """Busca un elemento en un árbol XML por nombre de tag, ignorando namespace."""
+    for elem in root.iter():
+        tag = elem.tag
+        if '}' in tag:
+            tag = tag.split('}', 1)[1]
+        if tag == tag_name:
+            return elem
+    return None
+
+
+def normalizar_rut_digits(rut: Optional[str]) -> str:
+    """Devuelve solo los dígitos del RUT (quita puntos, guiones, DV y espacios)."""
+    if rut is None:
+        return ''
+    return re.sub(r"\D", "", str(rut))
+
+
+def normalizar_rut_con_dv(rut: Optional[str]) -> str:
+    """Normaliza un RUT dejando DV si existe (quita puntos/espacios/nbsp)."""
+    if rut is None:
+        return ''
+    return re.sub(r'[\.\-\s\u00A0]', '', str(rut)).upper()
+
+
+def resolver_conflicto(ruta_original: str, politica: Optional[str] = None) -> Optional[str]:
+    """Resolver conflicto de archivo existente.
+    politica: 'S' sobrescribir, 'A' renombrar con sufijo, 'I' ignorar. Si None, renombra.
+    Devuelve ruta destino o None si se debe ignorar.
+    """
+    if not os.path.exists(ruta_original):
+        return ruta_original
+    if politica == 'S':
+        return ruta_original
+    if politica == 'I':
+        return None
+    # default: renombrar con sufijo
+    base, ext = os.path.splitext(ruta_original)
+    i = 1
+    nueva = f"{base}_{i}{ext}"
+    while os.path.exists(nueva):
+        i += 1
+        nueva = f"{base}_{i}{ext}"
+    return nueva
+
+
+def backup_file(path: Optional[str]) -> Optional[str]:
+    """Crear un backup ZIP del archivo indicado (si existe). Devuelve la ruta del zip o None."""
+    try:
+        if not path or not os.path.exists(path):
+            return None
+        import zipfile
+        base = os.path.splitext(path)[0]
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        dest = f"{base}_backup_{timestamp}.zip"
+        with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write(path, arcname=os.path.basename(path))
+        return dest
+    except (OSError, zipfile.BadZipFile) as e:
+        return None
