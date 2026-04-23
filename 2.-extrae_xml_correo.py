@@ -1,4 +1,3 @@
-import win32com.client
 import os
 import logging
 import argparse
@@ -11,6 +10,7 @@ from rich.text import Text
 from rich.progress import Progress, BarColumn, TimeElapsedColumn, TextColumn
 from rich.table import Table
 import utils
+from outlook_utils import conectar_outlook, filtrar_correos_por_fecha
 
 # Inicialización
 colorama_init(autoreset=True)
@@ -99,39 +99,6 @@ def parsear_args():
     parser.add_argument("--fecha-fin", type=str, help="Fecha fin en formato dd/mm/yyyy")
     parser.add_argument("--dry-run", action="store_true", help="Simula la ejecución sin guardar archivos")
     return parser.parse_args()
-
-
-def conectar_outlook():
-    logging.info("🔌 Conectando a Outlook...")
-    try:
-        outlook_app = win32com.client.Dispatch("Outlook.Application")
-        outlook_ns = outlook_app.GetNamespace("MAPI")
-        usuario_actual = outlook_app.Session.CurrentUser.Name
-        logging.info(f"✅ Conectado a la cuenta: {usuario_actual}")
-        return outlook_ns
-    except Exception as e:
-        logging.error(f"❌ No fue posible conectar a Outlook: {e}")
-        raise
-
-
-def filtrar_correos_por_fecha(folder, fecha_inicio: datetime, fecha_fin: datetime):
-    filtro = (
-        f"[ReceivedTime] >= '{fecha_inicio.strftime('%m/%d/%Y %I:%M %p')}' AND "
-        f"[ReceivedTime] <= '{fecha_fin.strftime('%m/%d/%Y %I:%M %p')}'"
-    )
-    logging.info(f"🔍 Aplicando filtro: {filtro}")
-    items = folder.Items
-    items.Sort("[ReceivedTime]", True)
-    try:
-        filtrados = items.Restrict(filtro)
-        mensajes = [msg for msg in filtrados if getattr(msg, "Class", None) == 43]
-        logging.info(f"✅ Correos encontrados en rango: {len(mensajes)}")
-        console.print(f"[green]✅ Correos encontrados en rango: {len(mensajes)}[/green]")
-        return mensajes
-    except Exception as e:
-        logging.error(f"❌ Error al filtrar correos: {e}")
-        console.print(f"[red]❌ Error al filtrar correos: {e}[/red]")
-        return []
 
 
 def decidir_guardado_archivos_repetidos(archivos_repetidos):
@@ -308,11 +275,7 @@ def main():
 
     configurar_logging(fecha_inicio)
 
-    try:
-        outlook_ns = conectar_outlook()
-    except Exception:
-        console.print("[bold red]❌ No se pudo conectar a Outlook.[/bold red]")
-        return
+    outlook_ns = conectar_outlook()
 
     bandeja = outlook_ns.GetDefaultFolder(6)  # Bandeja de entrada
     mensajes = filtrar_correos_por_fecha(bandeja, fecha_inicio, fecha_fin)

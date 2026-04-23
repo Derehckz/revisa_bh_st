@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import re
 import os
+import logging
 from datetime import datetime
 from typing import Any, List, Optional
 
 from rich.console import Console
 from rich.panel import Panel
-from colorama import init as colorama_init
+from colorama import init as colorama_init, Fore
 
 # Inicialización mínima para funciones utilitarias
 colorama_init(autoreset=True)
@@ -18,14 +19,16 @@ console = Console()
 
 def seleccionar_opcion(lista: List[Any], mensaje: str, icono: str = "") -> Any:
     """Selector de opciones en consola (retorna el elemento seleccionado)."""
+    # Ordenar la lista para consistencia
+    lista_ordenada = sorted(lista)
     console.print(Panel.fit(f"{icono} {mensaje}", style="cyan bold"))
-    for i, opt in enumerate(lista, 1):
+    for i, opt in enumerate(lista_ordenada, 1):
         console.print(f"[yellow]{i}.[/] {opt}")
     while True:
         try:
             sel = int(console.input("[green]👉 Seleccione número:[/] ").strip())
-            if 1 <= sel <= len(lista):
-                return lista[sel - 1]
+            if 1 <= sel <= len(lista_ordenada):
+                return lista_ordenada[sel - 1]
         except (ValueError, TypeError):
             pass
         console.print("[red]⚠️ Opción inválida, intente de nuevo.[/red]")
@@ -99,3 +102,16 @@ def backup_file(path: Optional[str]) -> Optional[str]:
         return dest
     except (OSError, zipfile.BadZipFile) as e:
         return None
+
+
+def listar_carpetas(ruta):
+    try:
+        # Filtra solo carpetas relevantes: excluye .git, __pycache__, .gitignore, etc.
+        return [d for d in os.listdir(ruta) 
+                if os.path.isdir(os.path.join(ruta, d)) 
+                and not d.startswith('.') 
+                and not d.startswith('__')]
+    except OSError as e:
+        logging.error(f"Error accediendo a {ruta}: {e}")
+        print(Fore.RED + f"❌ Error accediendo a {ruta}: {e}")
+        return []

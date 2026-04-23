@@ -1,15 +1,18 @@
 # Boletas de Honorarios - dependencias Python
-# Instalar: pip install -r requirements.txt
+# Instalar: py -m pip install -r requirements.txt
 # Versiones fijas para reproducibilidad.
+#
+# Python 3.14+: pandas 2.2.x no publica ruedas (wheel) para 3.14; pip intenta
+# compilar desde fuente y exige Visual Studio. Usar pandas 3.x (rueda cp314).
 
-pandas==2.2.2
+pandas==3.0.2
 openpyxl==3.1.5
 rich==13.9.4
 colorama==0.4.6
 tqdm==4.67.0
 
-# Windows: Outlook (envío/extracción de correos)
-pywin32==306
+# Windows: Outlook (envío/extracción de correos); 311 incluye rueda cp314
+pywin32==311
 
 # Opcionales para script 9 (revisión carpetas IP/CFT con OCR):
 # PyMuPDF>=1.21.0

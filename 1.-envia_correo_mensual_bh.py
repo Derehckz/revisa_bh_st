@@ -15,13 +15,58 @@ import utils
 colorama_init(autoreset=True)
 
 
-def listar_carpetas(ruta):
-    try:
-        return [d for d in os.listdir(ruta) if os.path.isdir(os.path.join(ruta, d))]
-    except OSError as e:
-        logging.error(f"Error accediendo a {ruta}: {e}")
-        print(Fore.RED + f"❌ Error accediendo a {ruta}: {e}")
-        return []
+
+def mostrar_previsualizacion(tipo_envio, cantidad_correos, mes, ano, df=None, indices=None):
+    """
+    Muestra una previsualización de las configuraciones y fecha que se usarán
+    antes de enviar los correos.
+    """
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from datetime import datetime
+    
+    console = Console()
+    
+    # Crear tabla con configuraciones
+    tabla = Table(title=f"⚙️ PREVISUALIZACIÓN - Envío {tipo_envio.upper()}", style="cyan")
+    tabla.add_column("Configuración", style="bold yellow", width=30)
+    tabla.add_column("Valor", style="bold white", width=50)
+    
+    tabla.add_row("📅 Fecha Límite de Recepción", f"[bold cyan]{config.ULT_FECHA_RECEPCION}[/bold cyan]")
+    tabla.add_row("⏰ Horario Límite", f"[bold cyan]{config.HORARIO_RECEPCION}[/bold cyan]")
+    tabla.add_row("📨 Correos a Enviar", f"[bold green]{cantidad_correos}[/bold green]")
+    tabla.add_row("📍 Tipo de Envío", f"[bold magenta]{tipo_envio}[/bold magenta]")
+    tabla.add_row("📆 Período", f"[bold cyan]{mes} {ano}[/bold cyan]")
+    tabla.add_row("📧 Email Contabilidad", config.EMAIL_CONTABILIDAD)
+    tabla.add_row("📧 Email XML Principal", config.EMAIL_XML_1)
+    if config.EMAIL_XML_2:
+        tabla.add_row("📧 Email XML Secundario", config.EMAIL_XML_2)
+    
+    console.print(tabla)
+    
+    # Mostrar muestra de destinatarios si hay
+    if df is not None and indices is not None and len(indices) > 0:
+        console.print("\n📋 [bold cyan]MUESTRA DE DESTINATARIOS ([yellow]{}/{} primeros[/yellow])[/bold cyan]".format(
+            min(5, len(indices)), len(indices)
+        ))
+        tabla_dest = Table(style="dim white")
+        tabla_dest.add_column("Docente", style="blue")
+        tabla_dest.add_column("Correo", style="green")
+        tabla_dest.add_column("RUT Razon", style="cyan")
+        
+        for i, idx in enumerate(indices[:5]):
+            tabla_dest.add_row(
+                df.at[idx, "NAME"],
+                df.at[idx, "Email_Docente"],
+                str(df.at[idx, "RUT RAZON"])
+            )
+        
+        console.print(tabla_dest)
+        
+        if len(indices) > 5:
+            console.print(f"[yellow]... y {len(indices) - 5} destinatarios más[/yellow]")
+
 
 def enviar_correo(outlook, email_destino, email_cc, asunto, cuerpo_html, ruta_adjunto=None):
     mail = outlook.CreateItem(0)
@@ -206,14 +251,14 @@ def main():
         console.print(f"[red]❌ Archivo adjunto no encontrado: {config.ARCHIVO_ADJUNTO}[/red]")
         return
 
-    carpetas_ano = listar_carpetas(config.RAIZ)
+    carpetas_ano = utils.listar_carpetas(config.RAIZ)
     if not carpetas_ano:
         console.print(f"[red]❌ No se encontraron carpetas en {config.RAIZ}[/red]")
         return
     ano_seleccionado = utils.seleccionar_opcion(carpetas_ano, "Seleccione el AÑO")
 
     ruta_ano = os.path.join(config.RAIZ, ano_seleccionado)
-    carpetas_mes = listar_carpetas(ruta_ano)
+    carpetas_mes = utils.listar_carpetas(ruta_ano)
     if not carpetas_mes:
         console.print(f"[red]❌ No se encontraron carpetas de mes en {ruta_ano}[/red]")
         return
@@ -295,17 +340,23 @@ def main():
 
     # Confirmación envío original
     console.print("\n🤖 ¿Desea continuar con el [bold]envío de correos originales[/bold]? ([green]s[/green]/[red]n[/red])")
-    if input("➡️ Respuesta: ").strip().lower() == 's':
-        if len(indices_sin_envio) > 0:
+    if len(indices_sin_envio) > 0:
+        console.print(f"\n[bold cyan]Mostrando previsualización antes de enviar...[/bold cyan]")
+        mostrar_previsualizacion("correo original", len(indices_sin_envio), mes_seleccionado, ano_seleccionado, df, indices_sin_envio)
+        console.print("\n🤖 ¿Desea [bold cyan]CONFIRMAR[/bold cyan] el envío de [bold green]{} correos originales[/bold green]? ([green]s[/green]/[red]n[/red])".format(len(indices_sin_envio)))
+        if input("➡️ Respuesta: ").strip().lower() == 's':
             enviar_correos(df, indices_sin_envio, tipo="original")
         else:
-            console.print("[yellow]⚠️ No hay correos pendientes para envío original.[/yellow]")
+            console.print("[yellow]🚫 Envío cancelado por el usuario.[/yellow]")
     else:
-        console.print("[yellow]🚫 Envío cancelado por el usuario.[/yellow]")
+        console.print("[yellow]⚠️ No hay correos pendientes para envío original.[/yellow]")
 
     # Confirmación envío recordatorio
     if len(indices_recordatorio) > 0:
-        console.print("\n🤖 ¿Desea enviar/re-enviar recordatorios a los que aún no han enviado la boleta? ([green]s[/green]/[red]n[/red])")
+        console.print("\n🤖 ¿Desea enviar/re-enviar [bold]recordatorios[/bold] a los que aún no han enviado la boleta? ([green]s[/green]/[red]n[/red])")
+        console.print(f"\n[bold cyan]Mostrando previsualización antes de enviar...[/bold cyan]")
+        mostrar_previsualizacion("recordatorio", len(indices_recordatorio), mes_seleccionado, ano_seleccionado, df, indices_recordatorio)
+        console.print("\n🤖 ¿Desea [bold cyan]CONFIRMAR[/bold cyan] el envío de [bold magenta]{} recordatorios[/bold magenta]? ([green]s[/green]/[red]n[/red])".format(len(indices_recordatorio)))
         if input("➡️ Respuesta: ").strip().lower() == 's':
             enviar_correos(df, indices_recordatorio, tipo="recordatorio")
         else:

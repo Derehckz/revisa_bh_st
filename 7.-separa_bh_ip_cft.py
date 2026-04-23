@@ -361,14 +361,14 @@ def main():
             return
 
     # Selección año/mes
-    años = [d for d in os.listdir(RAIZ) if os.path.isdir(os.path.join(RAIZ, d))]
+    años = utils.listar_carpetas(RAIZ)
     if not años:
         console.print(Panel.fit("[red]⚠️ No hay carpetas de año en la ruta configurada.[/red]", style="bold red"))
         return
     año = seleccionar_opcion(sorted(años), "Seleccione el año:", "🗓️")
     ruta_año = os.path.join(RAIZ, año)
 
-    meses = [d for d in os.listdir(ruta_año) if os.path.isdir(os.path.join(ruta_año, d))]
+    meses = utils.listar_carpetas(ruta_año)
     if not meses:
         console.print(Panel.fit(f"[red]⚠️ No hay carpetas de mes en {ruta_año}[/red]", style="bold red"))
         return

@@ -495,7 +495,7 @@ def main():
     console.print(Panel.fit("[bold cyan]🔎 Revisión de carpetas IP/CFT[/bold cyan]", style="bold green"))
 
     # Selección año/mes
-    años = [d for d in os.listdir(RAIZ) if os.path.isdir(os.path.join(RAIZ, d))]
+    años = utils.listar_carpetas(RAIZ)
     if not años:
         console.print("No hay carpetas de año en la ruta configurada.")
         return

@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from typing import List
 
 # Ruta raíz del proyecto (carpetas año/mes)
-RAIZ: str = os.path.abspath(r"C:\Users\alanc\Desktop\Boletas Honorarios")
+RAIZ: str = os.path.abspath(r"E:\Boletas Honorarios")
 CARPETA_BASE: str = RAIZ
 
 # Zona horaria para fechas
@@ -23,7 +23,7 @@ MESES_ES: List[str] = [
 ]
 
 # --- Envío de correos (script 1) ---
-ULT_FECHA_RECEPCION: str = "25 febrero 2026"
+ULT_FECHA_RECEPCION: str = "27 Abril 2026"
 HORARIO_RECEPCION: str = "19:00"  # Corregido: 19:00 (sin AM/PM)
 EMAIL_CONTABILIDAD: str = "contabilidad@santotomas.cl"
 EMAIL_XML_1: str = "achocano@santotomas.cl"
