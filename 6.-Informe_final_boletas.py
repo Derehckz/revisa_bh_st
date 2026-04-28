@@ -75,19 +75,12 @@ def formatear_rut(rut):
 def main():
     console.print(Panel.fit("[bold cyan]📂 Selección de Excel y creación hoja resumen[/bold cyan]", style="bold green"))
 
-    años = [d for d in os.listdir(RAIZ) if os.path.isdir(os.path.join(RAIZ, d))]
-    if not años:
-        console.print(Panel.fit("[red]⚠️ No hay carpetas de año en la ruta configurada.[/red]", style="bold red"))
+    try:
+        año, mes = utils.seleccionar_año_mes(RAIZ)
+    except ValueError as e:
+        console.print(Panel.fit(f"[red]⚠️ {e}[/red]", style="bold red"))
         return
-    año = seleccionar_opcion(sorted(años), "Seleccione el año:", "🗓️")
-    ruta_año = os.path.join(RAIZ, año)
-
-    meses = [d for d in os.listdir(ruta_año) if os.path.isdir(os.path.join(ruta_año, d))]
-    if not meses:
-        console.print(Panel.fit(f"[red]⚠️ No hay carpetas de mes en {ruta_año}[/red]", style="bold red"))
-        return
-    mes = seleccionar_opcion(sorted(meses), "Seleccione el mes:", "🗓️")
-    ruta_mes = os.path.join(ruta_año, mes)
+    ruta_mes = os.path.join(RAIZ, año, mes)
 
     ruta_excel = os.path.join(ruta_mes, "Solicitud.xlsx")
     if not os.path.isfile(ruta_excel):

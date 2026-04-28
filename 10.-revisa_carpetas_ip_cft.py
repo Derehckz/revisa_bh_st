@@ -9,7 +9,7 @@ from rich.progress import Progress, BarColumn, TimeElapsedColumn, TextColumn
 from colorama import init as colorama_init
 import argparse
 import tempfile
-from multiprocessing import Pool, cpu_count
+from concurrent.futures import ThreadPoolExecutor
 import utils
 
 # Opcionales para OCR/inspección
@@ -395,8 +395,8 @@ def eliminar_marcadores(ruta_mes, institutos):
 def ejecutar_trabajos(trabajos, procesos):
     """Ejecuta la lista de trabajos en paralelo y devuelve la lista de registros resultantes."""
     registros_local = []
-    with Pool(processes=procesos) as pool:
-        for res in pool.imap_unordered(_worker_tuple, trabajos):
+    with ThreadPoolExecutor(max_workers=procesos) as executor:
+        for res in executor.map(_worker_tuple, trabajos):
             if res:
                 registros_local.append(res)
     return registros_local

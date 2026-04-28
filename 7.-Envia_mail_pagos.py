@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-import win32com.client as win32
+from outlook_utils import conectar_outlook_app
 import time
 import logging
 from rich.console import Console
@@ -89,7 +89,7 @@ def main():
     if 'Correo Enviado' not in df.columns:
         df['Correo Enviado'] = ""
 
-    outlook = win32.Dispatch('Outlook.Application')
+    outlook = conectar_outlook_app()
 
     for idx, fila in df.iterrows():
         correo = str(fila.get("MAIL", "")).strip()
@@ -112,26 +112,55 @@ def main():
 
         asunto = f"[Importante] Información de pago de honorarios - {mes_año_pago}"
         cuerpo_html = f"""
-        <p><b>Estimado(a) {nombre}:</b></p>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px;">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h1 style="color: #2E8B57; margin: 0;">💰 ¡Información de Pago Disponible!</h1>
+                <p style="color: #666; font-size: 16px; margin: 5px 0;">Su depósito será realizado próximamente</p>
+            </div>
 
-        <p>Junto con saludar cordialmente, le informamos que su pago de honorarios correspondiente al período <b>{mes_año_pago}</b> se realizará el día <b>{fecha_pago}</b>.</p>
+            <div style="background-color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <p style="font-size: 18px; color: #333; margin-bottom: 15px;">
+                    <b>Estimado(a) {nombre}:</b>
+                </p>
 
-        <hr>
-        <h3>📌 Detalle de depósito</h3>
-        <ul>
-            <li>🏦 <b>Banco:</b> {banco}</li>
-            <li>💳 <b>Tipo de cuenta:</b> {tipo_cuenta}</li>
-            <li>🔢 <b>Número de cuenta:</b> {nro_cuenta}</li>
-            <li>💰 <b>Monto a depositar:</b> ${monto:,.0f}</li>
-        </ul>
+                <p style="font-size: 16px; line-height: 1.6; color: #555;">
+                    Le informamos que su pago de honorarios correspondiente al período <strong>{mes_año_pago}</strong> se realizará el día <strong>{fecha_pago}</strong>.
+                </p>
 
-        <hr>
-        <p>⚠️ Por favor, verifique que los datos de su cuenta sean correctos. Ante cualquier inconsistencia, informar por medio de este correo</b>.</p>
-        <p>⚠️ Por favor, se solicita no anular BH</b>.</p>
+                <div style="background-color: #e8f5e8; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #2E8B57;">
+                    <h3 style="color: #2E8B57; margin: 0 0 10px 0;">📌 Detalle de depósito</h3>
+                    <ul style="list-style: none; padding: 0; margin: 0;">
+                        <li style="margin-bottom: 8px;"><strong>🏦 Banco:</strong> {banco}</li>
+                        <li style="margin-bottom: 8px;"><strong>💳 Tipo de cuenta:</strong> {tipo_cuenta}</li>
+                        <li style="margin-bottom: 8px;"><strong>🔢 Número de cuenta:</strong> {nro_cuenta}</li>
+                        <li style="margin-bottom: 8px;"><strong>💰 Monto a depositar:</strong> ${monto:,.0f}</li>
+                    </ul>
+                </div>
 
-        <p>📩 Quedamos atentos a cualquier consulta.</p>
+                <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ffc107;">
+                    <h3 style="color: #856404; margin: 0 0 10px 0;">⚠️ Información Importante</h3>
+                    <ul style="margin: 0; padding-left: 20px; color: #856404;">
+                        <li>Por favor, verifique que los datos de su cuenta sean correctos.</li>
+                        <li>Ante cualquier inconsistencia, informar por medio de este correo.</li>
+                        <li>Por favor, se solicita no anular BH.</li>
+                    </ul>
+                </div>
 
-        <p>Saludos cordiales,</p>
+                <div style="text-align: center; margin-top: 30px;">
+                    <p style="font-size: 16px; color: #666; margin-bottom: 10px;">
+                        💼 <strong>Equipo Convenio Los Lagos</strong>
+                    </p>
+                    <p style="font-size: 14px; color: #999;">
+                        Gracias por su dedicación y profesionalismo 👏
+                    </p>
+                </div>
+            </div>
+
+            <div style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
+                <p>Este es un mensaje automático generado por el sistema de pagos.</p>
+                <p>Por favor, no responda directamente a este correo si no es necesario.</p>
+            </div>
+        </div>
         """
         try:
             enviar_correo(outlook, correo, EMAIL_COPIA, asunto, cuerpo_html)

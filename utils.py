@@ -115,3 +115,34 @@ def listar_carpetas(ruta):
         logging.error(f"Error accediendo a {ruta}: {e}")
         print(Fore.RED + f"❌ Error accediendo a {ruta}: {e}")
         return []
+
+
+def configurar_logging(ruta_log_file: str) -> None:
+    """Configura logging con RichHandler para consola y archivo."""
+    from rich.logging import RichHandler
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[
+            RichHandler(rich_tracebacks=True, markup=True),
+            logging.FileHandler(ruta_log_file)
+        ]
+    )
+
+
+def seleccionar_año_mes(raiz: str) -> tuple[str, str]:
+    """Selecciona año y mes de las carpetas disponibles."""
+    años = listar_carpetas(raiz)
+    if not años:
+        raise ValueError("No hay carpetas de año en la ruta configurada.")
+    año = seleccionar_opcion(sorted(años), "Seleccione el año:", "🗓️")
+    ruta_año = os.path.join(raiz, año)
+    
+    meses = listar_carpetas(ruta_año)
+    if not meses:
+        raise ValueError(f"No hay carpetas de mes en {ruta_año}")
+    mes = seleccionar_opcion(sorted(meses), "Seleccione el mes:", "🗓️")
+    
+    return año, mes

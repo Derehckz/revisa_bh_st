@@ -5,20 +5,27 @@ from rich.console import Console
 
 console = Console()
 
-def conectar_outlook():
+def conectar_outlook_app():
     """
-    Conecta a Outlook y devuelve el namespace MAPI.
+    Conecta a Outlook y devuelve la aplicación.
     """
     logging.info("🔌 Conectando a Outlook...")
     try:
         outlook_app = win32com.client.Dispatch("Outlook.Application")
-        outlook_ns = outlook_app.GetNamespace("MAPI")
         usuario_actual = outlook_app.Session.CurrentUser.Name
         logging.info(f"✅ Conectado a la cuenta: {usuario_actual}")
-        return outlook_ns
+        return outlook_app
     except Exception as e:
         logging.error(f"❌ No fue posible conectar a Outlook: {e}")
         raise
+
+
+def conectar_outlook_ns():
+    """
+    Conecta a Outlook y devuelve el namespace MAPI.
+    """
+    outlook_app = conectar_outlook_app()
+    return outlook_app.GetNamespace("MAPI")
 
 
 def filtrar_correos_por_fecha(folder, fecha_inicio: datetime, fecha_fin: datetime):

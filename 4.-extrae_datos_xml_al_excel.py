@@ -62,27 +62,6 @@ def extraer_datos_completos_xml(ruta_xml):
     except (ET.ParseError, OSError, ValueError) as e:
         return {'error': f"Error al leer XML: {e}"}
 
-def configurar_logger_rich(ruta_base):
-    ruta_logs = os.path.join(ruta_base, "logs_extraccion_xml_excel")
-    os.makedirs(ruta_logs, exist_ok=True)
-    nombre_log = datetime.now().strftime("extraccion_%Y%m%d_%H%M%S.log")
-    ruta_log = os.path.join(ruta_logs, nombre_log)
-
-    logger = logging.getLogger("ExtraccionLogger")
-    logger.setLevel(logging.DEBUG)
-    logger.handlers.clear()
-
-    file_handler = logging.FileHandler(ruta_log, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    logger.addHandler(file_handler)
-
-    console_handler = RichHandler(console=console, show_time=True, show_level=True, show_path=False)
-    console_handler.setLevel(logging.INFO)
-    logger.addHandler(console_handler)
-
-    return logger
-
 def seleccionar_opcion(lista, mensaje, icono=""):
     # Delegar a utils para mantener una única implementación compartida
     return utils.seleccionar_opcion(lista, mensaje, icono)
@@ -90,21 +69,17 @@ def seleccionar_opcion(lista, mensaje, icono=""):
 def main():
     console.print(Panel.fit("[bold cyan]📂 Extracción de datos XML al Excel[/bold cyan]", style="bold green"))
 
-    años = utils.listar_carpetas(RAIZ)
-    if not años:
-        console.print(Panel.fit("[red]⚠️ No hay carpetas de año en la ruta configurada.[/red]", style="bold red"))
+    try:
+        año, mes = utils.seleccionar_año_mes(RAIZ)
+    except ValueError as e:
+        console.print(Panel.fit(f"[red]⚠️ {e}[/red]", style="bold red"))
         return
-    año = seleccionar_opcion(sorted(años), "Seleccione el año:", "🗓️")
-    ruta_año = os.path.join(RAIZ, año)
+    ruta_mes = os.path.join(RAIZ, año, mes)
 
-    meses = utils.listar_carpetas(ruta_año)
-    if not meses:
-        console.print(Panel.fit(f"[red]⚠️ No hay carpetas de mes en {ruta_año}[/red]", style="bold red"))
-        return
-    mes = seleccionar_opcion(sorted(meses), "Seleccione el mes:", "🗓️")
-    ruta_mes = os.path.join(ruta_año, mes)
-
-    logger = configurar_logger_rich(ruta_mes)
+    ruta_logs = os.path.join(ruta_mes, "logs_extraccion_xml_excel")
+    os.makedirs(ruta_logs, exist_ok=True)
+    ruta_log_file = os.path.join(ruta_logs, datetime.now().strftime("extraccion_%Y%m%d_%H%M%S.log"))
+    utils.configurar_logging(ruta_log_file)
     
     ruta_excel = os.path.join(ruta_mes, "Solicitud.xlsx")
     if not os.path.isfile(ruta_excel):
@@ -236,7 +211,7 @@ def main():
         f"📄 Archivo Excel sobrescrito correctamente."
     )
     console.print(Panel(resumen, title="Resumen de extracción", style="bold green"))
-    logger.info("Extracción completada exitosamente.")
+    logging.info("Extracción completada exitosamente.")
 
 if __name__ == "__main__":
     main()

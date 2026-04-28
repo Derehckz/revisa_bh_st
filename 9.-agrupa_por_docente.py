@@ -118,21 +118,12 @@ def main():
     console.print(Panel.fit("[bold cyan]📁 Agrupa docentes por Institución (IP/CFT)[/bold cyan]", style="bold green"))
     
     # Selección año/mes
-    años = utils.listar_carpetas(RAIZ)
-    if not años:
-        console.print(Panel.fit("[red]⚠️ No hay carpetas de año en la ruta configurada.[/red]", style="bold red"))
+    try:
+        año, mes = utils.seleccionar_año_mes(RAIZ)
+    except ValueError as e:
+        console.print(Panel.fit(f"[red]⚠️ {e}[/red]", style="bold red"))
         return
-    
-    año = utils.seleccionar_opcion(sorted(años), "Seleccione el año:", "🗓️")
-    ruta_año = os.path.join(RAIZ, año)
-    
-    meses = utils.listar_carpetas(ruta_año)
-    if not meses:
-        console.print(Panel.fit(f"[red]⚠️ No hay carpetas de mes en {ruta_año}[/red]", style="bold red"))
-        return
-    
-    mes = utils.seleccionar_opcion(sorted(meses), "Seleccione el mes:", "🗓️")
-    ruta_mes = os.path.join(ruta_año, mes)
+    ruta_mes = os.path.join(RAIZ, año, mes)
     
     # Buscar Solicitud.xlsx
     ruta_excel = os.path.join(ruta_mes, "Solicitud.xlsx")
@@ -191,11 +182,7 @@ def main():
     carpeta_logs = os.path.join(ruta_mes, 'logs_agrupa')
     os.makedirs(carpeta_logs, exist_ok=True)
     log_file = os.path.join(carpeta_logs, f"agrupa_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-    logging.basicConfig(
-        filename=log_file,
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    utils.configurar_logging(log_file)
 
     logging.info(f"Iniciando agrupación de docentes para {año}/{mes}, hoja: {hoja}")
 

@@ -180,29 +180,6 @@ def mostrar_porcentaje_recepcion(df, total):
     )
     console.print(panel)
 
-def configurar_logger_rich(ruta_logs):
-    """Configura un logger con RichHandler para consola y FileHandler para archivo"""
-    if not os.path.exists(ruta_logs):
-        os.makedirs(ruta_logs, exist_ok=True)
-    nombre_log = datetime.now().strftime("revision_%Y%m%d_%H%M%S.log")
-    ruta_log_completo = os.path.join(ruta_logs, nombre_log)
-
-    logger = logging.getLogger("RevisionLogger")
-    logger.setLevel(logging.DEBUG)
-    logger.handlers.clear()
-
-    # Manejador de archivo
-    file_handler = logging.FileHandler(ruta_log_completo, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    logger.addHandler(file_handler)
-
-    # Manejador Rich para consola
-    console_handler = RichHandler(console=console, show_time=True, show_level=True, show_path=False)
-    console_handler.setLevel(logging.INFO)
-    logger.addHandler(console_handler)
-
-    return logger
 
 # Funciones originales de extracción y comparación
 
@@ -319,7 +296,7 @@ def es_provisionado(texto):
     patrones = ["provisionado", "provisonado", "provs"]
     return any(p in texto for p in patrones)
 
-def procesar_filas(df, ruta_carpeta, logger):
+def procesar_filas(df, ruta_carpeta):
     df = df.copy()
 
     columnas_str = ['Estado_Recepcion', 'Observaciones', 'archivo_xml']
@@ -347,7 +324,7 @@ def procesar_filas(df, ruta_carpeta, logger):
             df.at[idx,'Estado_Recepcion'] = 'NO RECIBIDO'
             df.at[idx,'Observaciones'] = 'RUT vacío'
             df.at[idx,'archivo_xml'] = ''
-            logger.warning(f"Fila {idx+1}: RUT vacío. Estado: NO RECIBIDO.")
+            logging.warning(f"Fila {idx+1}: RUT vacío. Estado: NO RECIBIDO.")
             continue
 
         rut_sin_dv = normalizar_rut_con_dv(fila['RUT_SIN_DV'])
@@ -409,7 +386,7 @@ def procesar_filas(df, ruta_carpeta, logger):
             if xml_existente_con_fallo_institucion:
                 estado = "RECIBIDO CON ERROR"
                 obs_text = "XML existe pero institución de emisión incorrecta o inconsistente"
-                logger.error(f"Fila {idx+1}: {obs_text}.")
+                logging.error(f"Fila {idx+1}: {obs_text}.")
             else:
                 pdf_sin_xml = False
                 bases_con_xml = {os.path.splitext(xml_name)[0] for xml_name in archivos if xml_name.lower().endswith(".xml") and xml_name.lower().startswith(PREFIJO)}
@@ -429,11 +406,11 @@ def procesar_filas(df, ruta_carpeta, logger):
                 if pdf_sin_xml:
                     estado = "RECIBIDO CON ERROR"
                     obs_text = "PDF existe para monto esperado, pero no tiene XML asociado"
-                    logger.warning(f"Fila {idx+1}: {obs_text}.")
+                    logging.warning(f"Fila {idx+1}: {obs_text}.")
                 else:
                     estado = "NO RECIBIDO"
                     obs_text = "No se encontró PDF ni XML válido para el monto esperado"
-                    logger.error(f"Fila {idx+1}: {obs_text}.")
+                    logging.error(f"Fila {idx+1}: {obs_text}.")
 
             df.at[idx,'Estado_Recepcion'] = estado
             df.at[idx,'Observaciones'] = obs_text
@@ -450,19 +427,19 @@ def procesar_filas(df, ruta_carpeta, logger):
                 df.at[idx,'Observaciones'] = 'OK; OJO ES PROVISIONADO'
             else:
                 df.at[idx,'Observaciones'] = 'OK'
-            logger.info(f"Fila {idx+1}: Datos correctos. Estado: RECIBIDO.")
+            logging.info(f"Fila {idx+1}: Datos correctos. Estado: RECIBIDO.")
         else:
             df.at[idx,'Estado_Recepcion'] = 'RECIBIDO CON ERROR'
             df.at[idx,'archivo_xml'] = archivo_xml_valido
             df.at[idx,'Observaciones'] = '; '.join(obs)
-            logger.warning(f"Fila {idx+1}: Observaciones: {'; '.join(obs)}")
+            logging.warning(f"Fila {idx+1}: Observaciones: {'; '.join(obs)}")
 
     df.drop(columns='__provisionado__', inplace=True)
     progress.stop()
     revis_fin = df['Estado_Recepcion'].str.strip().str.upper().isin(['RECIBIDO','RECIBIDO CON ERROR']).sum()
 
     imprimir_resumen_rich(df, revis_ini, revis_fin)
-    logger.info(f"Resumen final - Revisados inicio: {revis_ini}, final: {revis_fin}, Total: {total}")
+    logging.info(f"Resumen final - Revisados inicio: {revis_ini}, final: {revis_fin}, Total: {total}")
     console.print("[bold green]✔️ Proceso completado con éxito.[/]")
 
     return df
@@ -506,7 +483,9 @@ def main():
     ruta_mes = os.path.join(ruta_año,mes)
 
     ruta_logs = os.path.join(ruta_mes,"logs_revision")
-    logger = configurar_logger_rich(ruta_logs)
+    os.makedirs(ruta_logs, exist_ok=True)
+    ruta_log_file = os.path.join(ruta_logs, datetime.now().strftime("revision_%Y%m%d_%H%M%S.log"))
+    utils.configurar_logging(ruta_log_file)
 
     ruta_excel = os.path.join(ruta_mes,"Solicitud.xlsx")
     if not os.path.isfile(ruta_excel):
@@ -519,8 +498,8 @@ def main():
     hoja = seleccionar_opcion(hojas,"Seleccione la hoja del Excel para validar:","📄")
     df = pd.read_excel(ruta_excel, sheet_name=hoja, engine='openpyxl')
 
-    logger.info(f"Iniciando proceso para {año}/{mes}, hoja: {hoja}")
-    df_actualizado = procesar_filas(df, ruta_mes, logger)
+    logging.info(f"Iniciando proceso para {año}/{mes}, hoja: {hoja}")
+    df_actualizado = procesar_filas(df, ruta_mes)
 
     reporte = generar_reporte_texto(df_actualizado)
     ruta_reporte_dir = os.path.join(ruta_mes, "reporte_avance")
@@ -535,7 +514,7 @@ def main():
 
     guardar_excel(df_actualizado, ruta_excel, hoja)
 
-    logger.info("Proceso completado.")
+    logging.info("Proceso completado.")
     console.print("[blue bold]\n🎯 ¡Validación finalizada correctamente! Revisa los logs para detalles.[/]")
 
 if __name__ == "__main__":

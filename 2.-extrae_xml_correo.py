@@ -10,7 +10,7 @@ from rich.text import Text
 from rich.progress import Progress, BarColumn, TimeElapsedColumn, TextColumn
 from rich.table import Table
 import utils
-from outlook_utils import conectar_outlook, filtrar_correos_por_fecha
+from outlook_utils import conectar_outlook_ns, filtrar_correos_por_fecha
 
 # Inicialización
 colorama_init(autoreset=True)
@@ -275,7 +275,7 @@ def main():
 
     configurar_logging(fecha_inicio)
 
-    outlook_ns = conectar_outlook()
+    outlook_ns = conectar_outlook_ns()
 
     bandeja = outlook_ns.GetDefaultFolder(6)  # Bandeja de entrada
     mensajes = filtrar_correos_por_fecha(bandeja, fecha_inicio, fecha_fin)
