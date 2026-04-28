@@ -23,7 +23,7 @@ MESES_ES: List[str] = [
 ]
 
 # --- Envío de correos (script 1) ---
-ULT_FECHA_RECEPCION: str = "27 Abril 2026"
+ULT_FECHA_RECEPCION: str = "28 Abril 2026"
 HORARIO_RECEPCION: str = "19:00"  # Corregido: 19:00 (sin AM/PM)
 EMAIL_CONTABILIDAD: str = "contabilidad@santotomas.cl"
 EMAIL_XML_1: str = "achocano@santotomas.cl"

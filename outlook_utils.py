@@ -3,6 +3,10 @@ import logging
 from datetime import datetime
 from rich.console import Console
 
+import utils
+
+utils.asegurar_utf8_salida()
+
 console = Console()
 
 def conectar_outlook_app():

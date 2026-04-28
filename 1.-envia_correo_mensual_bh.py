@@ -11,6 +11,7 @@ import argparse
 
 import config
 import utils
+import email_templates as templates
 
 # Inicializar colorama
 colorama_init(autoreset=True)
@@ -105,169 +106,20 @@ def enviar_correos(df, indices, tipo="original"):
             mes = str(row['MONTH']).upper()
             año = int(row['YEAR'])
 
-            if tipo == "original":
-                asunto = f"Solicitud Boleta Honorarios {mes} {año} - {rut_docente}-{nombre_completo}"
-                cuerpo_html = f"""
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px;">
-                    <div style="text-align: center; margin-bottom: 20px;">
-                        <h1 style="color: #2E8B57; margin: 0;">📄 Solicitud de Boleta de Honorarios</h1>
-                        <p style="color: #666; font-size: 16px; margin: 5px 0;">Proceso iniciado para {mes.capitalize()} {año}</p>
-                    </div>
-
-                    <div style="background-color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                        <p style="font-size: 18px; color: #333; margin-bottom: 15px;">
-                            <b>Estimado(a) Sr(a). {nombre_completo}:</b>
-                        </p>
-
-                        <p style="font-size: 16px; line-height: 1.6; color: #555;">
-                            Junto con saludar cordialmente, Le informamos que se ha iniciado el proceso de emisión de boletas de honorarios correspondientes al mes de <strong>{mes.capitalize()}</strong>. Las boletas serán recepcionadas <strong>hasta el día {config.ULT_FECHA_RECEPCION}, a las {config.HORARIO_RECEPCION}</strong> (plazo impostergable).
-                        </p>
-
-                        <div style="background-color: #e8f5e8; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #2E8B57;">
-                            <h3 style="color: #2E8B57; margin: 0 0 10px 0;">📋 Instrucciones</h3>
-                            <ol style="margin: 0; padding-left: 20px;">
-                                <li>Emitir la boleta desde el portal del SII al correo: <strong>{config.EMAIL_CONTABILIDAD}</strong></li>
-                                <li>Enviar copia de la boleta generada (en formato XML y PDF) a:<br>
-                                    <strong>{config.EMAIL_XML_1}</strong><br>
-                                    <strong>{config.EMAIL_XML_2}</strong></li>
-                                <li>Respetar exactamente el <strong>RUT</strong>, <strong>dirección</strong>, <strong>glosa</strong> y <strong>monto</strong> indicados más abajo.</li>
-                                <li>No modificar el nombre de los archivos adjuntos. Ejemplo: <code>bhe_11111111-1.pdf</code> o <code>.xml</code></li>
-                            </ol>
-                        </div>
-
-                        <div style="background-color: #f8d7da; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #dc3545;">
-                            <h3 style="color: #721c24; margin: 0 0 10px 0;">⚠️ Importante</h3>
-                            <p style="margin: 0; color: #721c24;">
-                                Si no se envía la copia XML de la boleta tanto a <strong>{config.EMAIL_CONTABILIDAD}</strong> como a <strong>{config.EMAIL_XML_1}</strong>, <strong>el documento no será considerado para pago</strong> en los plazos establecidos.
-                            </p>
-                        </div>
-
-                        <div style="background-color: #d1ecf1; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #17a2b8;">
-                            <h3 style="color: #0c5460; margin: 0 0 10px 0;">📄 Detalle del Docente</h3>
-                            <ul style="list-style: none; padding: 0; margin: 0;">
-                                <li style="margin-bottom: 8px;"><strong>🆔 RUT:</strong> {rut_docente}</li>
-                                <li style="margin-bottom: 8px;"><strong>👤 Nombre:</strong> {nombre_completo}</li>
-                            </ul>
-                        </div>
-
-                        <div style="background-color: #d1ecf1; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #17a2b8;">
-                            <h3 style="color: #0c5460; margin: 0 0 10px 0;">💼 Datos para la emisión de la boleta</h3>
-                            <ul style="list-style: none; padding: 0; margin: 0;">
-                                <li style="margin-bottom: 8px;"><strong>🆔 RUT:</strong> {rut_razon}</li>
-                                <li style="margin-bottom: 8px;"><strong>🏢 Razón Social:</strong> {razon_social}</li>
-                                <li style="margin-bottom: 8px;"><strong>📍 Dirección:</strong> {direccion_razon}</li>
-                                <li style="margin-bottom: 8px;"><strong>📝 Glosa:</strong> {glosa}</li>
-                                <li style="margin-bottom: 8px;"><strong>💰 Monto:</strong> ${monto:,.0f}.-</li>
-                            </ul>
-                        </div>
-
-                        <p style="font-size: 16px; line-height: 1.6; color: #555;">
-                            La boleta debe ser emitida únicamente con los datos indicados. Cualquier diferencia podría generar el rechazo del documento.
-                        </p>
-
-                        <p style="font-size: 16px; line-height: 1.6; color: #555;">
-                            Ante dudas sobre el detalle de su pago, puede contactar a su director(a) de programa al correo: <strong>{email_dp}</strong>
-                        </p>
-
-                        <div style="text-align: center; margin-top: 30px;">
-                            <p style="font-size: 16px; color: #666; margin-bottom: 10px;">
-                                💼 <strong>Equipo de Contabilidad</strong>
-                            </p>
-                            <p style="font-size: 14px; color: #999;">
-                                Quedamos atentos a su envío 📤
-                            </p>
-                        </div>
-                    </div>
-
-                    <div style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
-                        <p>Este es un mensaje automático generado por el sistema de solicitudes.</p>
-                        <p>Por favor, no responda directamente a este correo si no es necesario.</p>
-                    </div>
-                </div>
-                """
-            else:  # recordatorio
-                asunto = f"Recordatorio: Solicitud Boleta Honorarios {mes} {año} - {rut_docente}-{nombre_completo}"
-                cuerpo_html = f"""
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px;">
-                    <div style="text-align: center; margin-bottom: 20px;">
-                        <h1 style="color: #dc3545; margin: 0;">⏰ Recordatorio: Boleta de Honorarios</h1>
-                        <p style="color: #666; font-size: 16px; margin: 5px 0;">Pendiente de envío para {mes.capitalize()} {año}</p>
-                    </div>
-
-                    <div style="background-color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                        <p style="font-size: 18px; color: #333; margin-bottom: 15px;">
-                            <b>Estimado(a) Sr(a). {nombre_completo}:</b>
-                        </p>
-
-                        <p style="font-size: 16px; line-height: 1.6; color: #555;">
-                            Hasta la fecha no hemos recibido la Boleta de Honorarios en formato XML y PDF correspondiente al mes de <strong>{mes.capitalize()}</strong>.
-                        </p>
-
-                        <div style="background-color: #f8d7da; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #dc3545;">
-                            <h3 style="color: #721c24; margin: 0 0 10px 0;">⚠️ Urgente</h3>
-                            <p style="margin: 0; color: #721c24;">
-                                Le solicitamos enviar la boleta antes del <strong>{config.ULT_FECHA_RECEPCION}</strong>, a las <strong>{config.HORARIO_RECEPCION}</strong>. De no hacerlo, lamentablemente no podrá ser procesado su pago en los plazos establecidos.
-                            </p>
-                        </div>
-
-                        <div style="background-color: #e8f5e8; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #2E8B57;">
-                            <h3 style="color: #2E8B57; margin: 0 0 10px 0;">📋 Instrucciones</h3>
-                            <ol style="margin: 0; padding-left: 20px;">
-                                <li>Emitir la boleta desde el portal del SII al correo: <strong>{config.EMAIL_CONTABILIDAD}</strong></li>
-                                <li>Enviar copia de la boleta generada (en formato XML y PDF) a:<br>
-                                    <strong>{config.EMAIL_XML_1}</strong><br>
-                                    <strong>{config.EMAIL_XML_2}</strong></li>
-                                <li>Respetar exactamente el <strong>RUT</strong>, <strong>dirección</strong>, <strong>glosa</strong> y <strong>monto</strong> indicados más abajo.</li>
-                                <li>No modificar el nombre de los archivos adjuntos. Ejemplo: <code>bhe_11111111-1.pdf</code> o <code>.xml</code></li>
-                            </ol>
-                        </div>
-
-                        <div style="background-color: #f8d7da; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #dc3545;">
-                            <h3 style="color: #721c24; margin: 0 0 10px 0;">⚠️ Importante</h3>
-                            <p style="margin: 0; color: #721c24;">
-                                Si no se envía la copia XML de la boleta tanto a <strong>{config.EMAIL_CONTABILIDAD}</strong> como a <strong>{config.EMAIL_XML_1}</strong>, <strong>el documento no será considerado para pago</strong> en los plazos establecidos.
-                            </p>
-                        </div>
-
-                        <div style="background-color: #d1ecf1; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #17a2b8;">
-                            <h3 style="color: #0c5460; margin: 0 0 10px 0;">📄 Detalle del Docente</h3>
-                            <ul style="list-style: none; padding: 0; margin: 0;">
-                                <li style="margin-bottom: 8px;"><strong>🆔 RUT:</strong> {rut_docente}</li>
-                                <li style="margin-bottom: 8px;"><strong>👤 Nombre:</strong> {nombre_completo}</li>
-                            </ul>
-                        </div>
-
-                        <div style="background-color: #d1ecf1; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #17a2b8;">
-                            <h3 style="color: #0c5460; margin: 0 0 10px 0;">💼 Datos para la emisión de la boleta</h3>
-                            <ul style="list-style: none; padding: 0; margin: 0;">
-                                <li style="margin-bottom: 8px;"><strong>🆔 RUT:</strong> {rut_razon}</li>
-                                <li style="margin-bottom: 8px;"><strong>🏢 Razón Social:</strong> {razon_social}</li>
-                                <li style="margin-bottom: 8px;"><strong>📍 Dirección:</strong> {direccion_razon}</li>
-                                <li style="margin-bottom: 8px;"><strong>📝 Glosa:</strong> {glosa}</li>
-                                <li style="margin-bottom: 8px;"><strong>💰 Monto:</strong> ${monto:,.0f}.-</li>
-                            </ul>
-                        </div>
-
-                        <p style="font-size: 16px; line-height: 1.6; color: #555;">
-                            Ante dudas sobre el detalle de su pago, puede contactar a su director(a) de programa al correo: <strong>{email_dp}</strong>
-                        </p>
-
-                        <div style="text-align: center; margin-top: 30px;">
-                            <p style="font-size: 16px; color: #666; margin-bottom: 10px;">
-                                💼 <strong>Equipo de Convenio Los Lagos</strong>
-                            </p>
-                            <p style="font-size: 14px; color: #999;">
-                                Quedamos atentos a su envío 📤
-                            </p>
-                        </div>
-                    </div>
-
-                    <div style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
-                        <p>Este es un mensaje automático generado por el sistema de recordatorios.</p>
-                        <p>Por favor, no responda directamente a este correo si no es necesario.</p>
-                    </div>
-                </div>
-                """
+            asunto = templates.generar_asunto_solicitud(tipo, mes, año, rut_docente, nombre_completo)
+            cuerpo_html = templates.generar_cuerpo_solicitud(
+                tipo=tipo,
+                nombre_completo=nombre_completo,
+                rut_docente=rut_docente,
+                rut_razon=rut_razon,
+                razon_social=razon_social,
+                direccion_razon=direccion_razon,
+                glosa=glosa,
+                monto=monto,
+                email_dp=email_dp,
+                mes=mes,
+                año=año,
+            )
 
             cc_list = [config.EMAIL_XML_2]
             if isinstance(email_dp, str) and utils.validar_email(email_dp):

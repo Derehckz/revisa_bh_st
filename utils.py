@@ -117,17 +117,32 @@ def listar_carpetas(ruta):
         return []
 
 
+def asegurar_utf8_salida() -> None:
+    """Asegura que stdout y stderr usen UTF-8 para que los emojis se impriman correctamente."""
+    import sys
+
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def configurar_logging(ruta_log_file: str) -> None:
     """Configura logging con RichHandler para consola y archivo."""
     from rich.logging import RichHandler
-    
+
+    asegurar_utf8_salida()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
         datefmt="[%X]",
         handlers=[
             RichHandler(rich_tracebacks=True, markup=True),
-            logging.FileHandler(ruta_log_file)
+            logging.FileHandler(ruta_log_file, encoding="utf-8")
         ]
     )
 

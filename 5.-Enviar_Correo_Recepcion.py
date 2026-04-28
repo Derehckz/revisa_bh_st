@@ -8,6 +8,7 @@ from rich.panel import Panel
 from colorama import init as colorama_init, Fore
 import config
 import utils
+import email_templates as templates
 
 colorama_init(autoreset=True)
 console = Console()
@@ -92,6 +93,11 @@ def main():
     os.makedirs(ruta_logs, exist_ok=True)
     ruta_log_file = os.path.join(ruta_logs, "envio_recepcion.log")
     logging.basicConfig(filename=ruta_log_file, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    for handler in logging.root.handlers:
+        if isinstance(handler, logging.FileHandler):
+            handler.setLevel(logging.INFO)
+            handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+            handler.encoding = 'utf-8'
 
     # Leer Excel (hoja principal, asumiendo "Solicitud" o primera)
     try:
@@ -150,60 +156,14 @@ def main():
             fallidos += 1
             continue
 
-        asunto = f"✅ Confirmación de Recepción de Boleta de Honorarios - {numero_boleta}"
-        cuerpo_html = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px;">
-            <div style="text-align: center; margin-bottom: 20px;">
-                <h1 style="color: #2E8B57; margin: 0;">🎉 ¡Boleta Recepcionada Exitosamente!</h1>
-                <p style="color: #666; font-size: 16px; margin: 5px 0;">Su documento ha sido procesado correctamente</p>
-            </div>
-
-            <div style="background-color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                <p style="font-size: 18px; color: #333; margin-bottom: 15px;">
-                    <b>Estimado(a) {nombre}:</b>
-                </p>
-
-                <p style="font-size: 16px; line-height: 1.6; color: #555;">
-                    Hemos recibido y procesado correctamente su <strong>Boleta de Honorarios</strong>. 
-                    Su documento está ahora en nuestro sistema y será incluido en el proceso de pagos correspondiente.
-                </p>
-
-                <div style="background-color: #e8f5e8; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #2E8B57;">
-                    <h3 style="color: #2E8B57; margin: 0 0 10px 0;">📋 Detalles de su Boleta</h3>
-                    <ul style="list-style: none; padding: 0; margin: 0;">
-                        <li style="margin-bottom: 8px;"><strong>🆔 RUT Receptor:</strong> {rut}</li>
-                        <li style="margin-bottom: 8px;"><strong>📄 Número de Boleta:</strong> {numero_boleta}</li>
-                        <li style="margin-bottom: 8px;"><strong>👤 Nombre Receptor:</strong> {nombre}</li>
-                        <li style="margin-bottom: 8px;"><strong>🏢 RUT Emisor:</strong> {rut_emisor}</li>
-                        <li style="margin-bottom: 8px;"><strong>💰 Monto Total:</strong> {monto}</li>
-                    </ul>
-                </div>
-
-                <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ffc107;">
-                    <h3 style="color: #856404; margin: 0 0 10px 0;">⚠️ Información Importante</h3>
-                    <ul style="margin: 0; padding-left: 20px; color: #856404;">
-                        <li>Su boleta ha sido validada y está lista para procesamiento de pago.</li>
-                        <li>El pago se realizará según el calendario establecido por la institución.</li>
-                        <li>Ante cualquier duda, puede contactarnos respondiendo este correo.</li>
-                    </ul>
-                </div>
-
-                <div style="text-align: center; margin-top: 30px;">
-                    <p style="font-size: 16px; color: #666; margin-bottom: 10px;">
-                        💼 <strong>Equipo de Convenio Los Lagos</strong>
-                    </p>
-                    <p style="font-size: 14px; color: #999;">
-                        Gracias por su colaboración y puntualidad en el envío de documentos 📅
-                    </p>
-                </div>
-            </div>
-
-            <div style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
-                <p>Este es un mensaje automático generado por el sistema de procesamiento de boletas.</p>
-                <p>Por favor, no responda directamente a este correo si no es necesario.</p>
-            </div>
-        </div>
-        """
+        asunto = templates.generar_asunto_recepcion(numero_boleta)
+        cuerpo_html = templates.generar_cuerpo_recepcion(
+            nombre=nombre,
+            numero_boleta=numero_boleta,
+            rut=rut,
+            rut_emisor=rut_emisor,
+            monto=monto,
+        )
 
         # Mostrar previsualización en modo prueba
         if modo_prueba:
