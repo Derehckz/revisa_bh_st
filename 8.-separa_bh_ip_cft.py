@@ -7,14 +7,7 @@ import sys
 import argparse
 from datetime import datetime
 import utils
-from rich.console import Console
-from rich.panel import Panel
 from rich.progress import Progress, BarColumn, TimeElapsedColumn, TextColumn
-from colorama import init as colorama_init, Fore
-
-# Inicialización
-colorama_init(autoreset=True)
-console = Console()
 
 # Configuración básica (ajustar en config.py si se desea)
 import config
@@ -22,10 +15,7 @@ RAIZ = config.RAIZ
 ZONA_HORARIA = config.ZONA_HORARIA
 MESES_ES = config.MESES_ES
 
-
-def seleccionar_opcion(lista, mensaje, icono=""):
-    # Delegar a utils para mantener una única implementación compartida
-    return utils.seleccionar_opcion(lista, mensaje, icono)
+console = utils.console
 
 
 def encontrar_columna_categoria(df):
@@ -111,7 +101,7 @@ def procesar_carpeta_fuente(ruta_fuente, ruta_destino_mes, df, columna_categoria
     rutas = [f for f in os.listdir(ruta_fuente) if f.lower().startswith('bhe_') and f.lower().endswith(('.pdf', '.xml'))]
 
     if not rutas:
-        console.print(Panel.fit("[yellow]⚠️ No se encontraron archivos 'bhe_' PDF/XML en la carpeta seleccionada.[/yellow]", style="yellow"))
+        utils.print_warning("No se encontraron archivos 'bhe_' PDF/XML en la carpeta seleccionada.")
         return 0
 
     total = len(rutas)
@@ -182,7 +172,7 @@ def procesar_carpeta_fuente(ruta_fuente, ruta_destino_mes, df, columna_categoria
             procesados += 1
             progress.advance(task)
 
-    console.print(Panel.fit(f"✅ Proceso finalizado. Archivos procesados: {procesados}", style="bold green"))
+    utils.print_success(f"Proceso finalizado. Archivos procesados: {procesados}")
     return procesados
 
 
@@ -260,14 +250,16 @@ def procesar_por_filas(df, ruta_fuente, ruta_destino_mes, col_rut_razon, col_rut
                             continue
                         # preguntar al usuario
                         while True:
-                            resp = console.input(f"[yellow]No se pudo clasificar automáticamente la fila {idx+1} (RUT: {clave_rut}). Es IP o CFT? [I/C]: [/]").strip().upper()
+                            resp = utils.prompt_required(
+                                f"No se pudo clasificar automáticamente la fila {idx+1} (RUT: {clave_rut}). Es IP o CFT? [I/C]"
+                            ).strip().upper()
                             if resp in ('I', 'IP'):
                                 categoria = 'IP'
                                 break
                             if resp in ('C', 'CFT'):
                                 categoria = 'CFT'
                                 break
-                            console.print("[red]Respuesta inválida. Escribe I (IP) o C (CFT).[/red]")
+                            utils.print_error("Respuesta inválida. Escribe I (IP) o C (CFT).")
                         decision_por_rut[clave_rut] = categoria
 
                 carpeta_cat = categoria if categoria else 'CFT'
@@ -283,7 +275,7 @@ def procesar_por_filas(df, ruta_fuente, ruta_destino_mes, col_rut_razon, col_rut
 
                 if not encontrados:
                     logging.info(f"Fila {idx+1} ({rut_sin_dv}): no se encontraron archivos para patrón {patron_prefijo}")
-                    console.print(Fore.YELLOW + f"[⚠️] Fila {idx+1}: no se encontraron archivos para RUT {rut_sin_dv} ({patron_prefijo})")
+                    utils.print_warning(f"Fila {idx+1}: no se encontraron archivos para RUT {rut_sin_dv} ({patron_prefijo})")
                     progress.advance(task)
                     continue
 
@@ -291,19 +283,19 @@ def procesar_por_filas(df, ruta_fuente, ruta_destino_mes, col_rut_razon, col_rut
                 os.makedirs(carpeta_dest, exist_ok=True)
 
                 # Mostrar cuántos archivos encontrados para esta fila
-                console.print(f"Fila {idx+1}: encontrados {len(encontrados)} archivo(s) para RUT {rut_sin_dv}: {encontrados}")
+                utils.print_info(f"Fila {idx+1}: encontrados {len(encontrados)} archivo(s) para RUT {rut_sin_dv}: {encontrados}")
                 for nombre in encontrados:
                     src = os.path.join(ruta_fuente, nombre)
                     dst = os.path.join(carpeta_dest, nombre)
                     if dry_run:
                         logging.info(f"[DRY-RUN] {('Mover' if mover else 'Copiar')} {src} -> {dst}")
-                        console.print(Fore.MAGENTA + f"[DRY-RUN] {('Mover' if mover else 'Copiar')} {src} -> {dst}")
+                        utils.print_info(f"[DRY-RUN] {('Mover' if mover else 'Copiar')} {src} -> {dst}")
                     else:
                         try:
                             if mover:
                                 shutil.move(src, dst)
                                 logging.info(f"Movido: {src} -> {dst}")
-                                console.print(Fore.GREEN + f"[MOVIDO] {src} -> {dst}")
+                                utils.print_success(f"MOVIDO: {src} -> {dst}")
                             else:
                                 # si existe dst, renombrar con sufijo para evitar pérdida
                                 if os.path.exists(dst):
@@ -316,10 +308,10 @@ def procesar_por_filas(df, ruta_fuente, ruta_destino_mes, col_rut_razon, col_rut
                                     dst = nuevo
                                 shutil.copy2(src, dst)
                                 logging.info(f"Copiado: {src} -> {dst}")
-                                console.print(Fore.GREEN + f"[COPIADO] {src} -> {dst}")
+                                utils.print_success(f"COPIADO: {src} -> {dst}")
                         except Exception as e:
                             logging.error(f"Error al copiar/mover {src} -> {dst}: {e}")
-                            console.print(Fore.RED + f"[ERROR] {src} -> {dst}: {e}")
+                            utils.print_error(f"Error al copiar/mover {src} -> {dst}: {e}")
                     movimientos.append((idx+1, rut_sin_dv, nombre, carpeta_cat))
                     archivos_procesados += 1
 
@@ -327,12 +319,12 @@ def procesar_por_filas(df, ruta_fuente, ruta_destino_mes, col_rut_razon, col_rut
                 logging.error(f"Error procesando fila {idx+1}: {e}")
             progress.advance(task)
 
-    console.print(Panel.fit(f"✅ Proceso por filas finalizado. Archivos procesados: {archivos_procesados}", style="bold green"))
+    utils.print_success(f"Proceso por filas finalizado. Archivos procesados: {archivos_procesados}")
     return archivos_procesados, movimientos
 
 
 def main():
-    console.print(Panel.fit("[bold cyan]📁 Separador de BH por IP / CFT[/bold cyan]", style="bold green"))
+    utils.print_header("📁 Separador de BH por IP / CFT", "Clasificación automática de boletas")
 
     # Parsear flags opcionales para ejecución no interactiva
     parser = argparse.ArgumentParser(description="Separar BH por IP/CFT según Solicitud.xlsx")
@@ -357,32 +349,31 @@ def main():
                     if cat in ('IP','CFT'):
                         mapping[rut] = cat
         except (OSError, csv.Error) as e:
-            console.print(Panel.fit(f"[red]No se pudo leer mapping CSV: {e}[/red]", style="bold red"))
+            utils.print_error(f"No se pudo leer mapping CSV: {e}")
             return
 
     # Selección año/mes
     try:
         año, mes = utils.seleccionar_año_mes(RAIZ)
     except ValueError as e:
-        console.print(Panel.fit(f"[red]⚠️ {e}[/red]", style="bold red"))
+        utils.print_error(str(e))
         return
     ruta_mes = os.path.join(RAIZ, año, mes)
 
     # Buscar Solicitud.xlsx
     ruta_excel = os.path.join(ruta_mes, "Solicitud.xlsx")
     if not os.path.isfile(ruta_excel):
-        console.print(Panel.fit(f"[red]❌ No se encontró archivo Solicitud.xlsx en {ruta_mes}[/red]", style="bold red"))
+        utils.print_error(f"No se encontró archivo Solicitud.xlsx en {ruta_mes}")
         return
 
     # Ruta origen: permite al usuario elegir carpeta que contenga los archivos a procesar
-    console.print(Panel.fit("📂 Seleccione la carpeta donde están los archivos a separar (puede ser la misma carpeta del mes o una carpeta externa).", style="cyan"))
-    console.print("1. Usar la carpeta del mes: " + ruta_mes)
-    console.print("2. Ingresar ruta personalizada")
-    opcion = console.input("[green]➡️ Opción (1/2): [/]").strip()
+    utils.print_info("Seleccione la carpeta donde están los archivos a separar (puede ser la misma carpeta del mes o una carpeta externa).")
+    utils.print_list("Opciones", [f"1. Usar la carpeta del mes: {ruta_mes}", "2. Ingresar ruta personalizada"])
+    opcion = utils.prompt_required("Opción (1/2)")
     if opcion == '2':
-        ruta_fuente = console.input("[green]📁 Ingresa la ruta completa de la carpeta fuente: [/]").strip()
+        ruta_fuente = utils.prompt_required("Ingresa la ruta completa de la carpeta fuente")
         if not os.path.isdir(ruta_fuente):
-            console.print(Panel.fit(f"[red]❌ La ruta no existe: {ruta_fuente}[/red]", style="bold red"))
+            utils.print_error(f"La ruta no existe: {ruta_fuente}")
             return
     else:
         ruta_fuente = ruta_mes
@@ -391,40 +382,40 @@ def main():
     if args.mover:
         mover = True
     else:
-        mover = console.input("[green]¿Deseas mover los archivos en lugar de copiarlos? (s/N): [/] ").strip().lower() == 's'
+        mover = utils.print_confirm("¿Deseas mover los archivos en lugar de copiarlos?")
 
     if args.dry_run:
         dry_run = True
     else:
-        dry_run = console.input("[green]¿Dry-run? (solo mostrar acciones) (s/N): [/] ").strip().lower() == 's'
+        dry_run = utils.print_confirm("¿Dry-run? (solo mostrar acciones)")
 
     # Cargar Excel y seleccionar hoja
     try:
         xls = pd.ExcelFile(ruta_excel, engine='openpyxl')
         hojas = xls.sheet_names
     except (OSError, ValueError, KeyError) as e:
-        console.print(Panel.fit(f"[red]❌ Error leyendo el archivo Excel: {e}[/red]", style="bold red"))
+        utils.print_error(f"Error leyendo el archivo Excel: {e}")
         return
 
-    hoja = seleccionar_opcion(hojas, "Seleccione la hoja del Excel para usar:", "📄")
+    hoja = utils.seleccionar_opcion(hojas, "Seleccione la hoja del Excel para usar:", "📄")
     try:
         df = pd.read_excel(ruta_excel, sheet_name=hoja, engine='openpyxl')
     except (OSError, ValueError, KeyError) as e:
-        console.print(Panel.fit(f"[red]❌ Error leyendo la hoja '{hoja}': {e}[/red]", style="bold red"))
+        utils.print_error(f"Error leyendo la hoja '{hoja}': {e}")
         return
 
     # Detectar columna de categoria (IP / CFT)
     col_cat = encontrar_columna_categoria(df)
     if col_cat is None:
-        console.print(Panel.fit("[yellow]⚠️ No se detectó automáticamente una columna con valores 'IP'/'CFT'.[/yellow]", style="yellow"))
-        console.print("Columnas disponibles:")
+        utils.print_warning("No se detectó automáticamente una columna con valores 'IP'/'CFT'.")
+        utils.print_info("Columnas disponibles:")
         for c in df.columns:
-            console.print(f" - {c}")
-        col_cat = console.input("[green]👉 Ingresa el nombre de la columna que contiene IP/CFT (o deja vacío para no usar): [/] ").strip()
+            utils.console.print(f" - {c}")
+        col_cat = utils.prompt_optional("Ingresa el nombre de la columna que contiene IP/CFT (o deja vacío para no usar)")
         if col_cat == '':
             col_cat = None
         elif col_cat not in df.columns:
-            console.print(Panel.fit(f"[red]❌ Columna '{col_cat}' no encontrada en el Excel.[/red]", style="bold red"))
+            utils.print_error(f"Columna '{col_cat}' no encontrada en el Excel.")
             return
 
     # Preparar logging simple
@@ -434,8 +425,15 @@ def main():
     utils.configurar_logging(log_file)
 
     # Modo de procesamiento: por filas (recomendado) o por detección de archivos
-    console.print("\n[cyan]Modo de procesamiento:[/]\n  1. Por filas del Excel (buscar por RUT_SIN_DV en cada fila)\n  2. Por archivos detectados en la carpeta (modo previo)")
-    modo = console.input("[green]➡️ Elige modo (1/2, default 1): [/] ").strip()
+    utils.print_info("Modo de procesamiento:")
+    utils.print_list(
+        "Modos",
+        [
+            "1. Por filas del Excel (buscar por RUT_SIN_DV en cada fila)",
+            "2. Por archivos detectados en la carpeta (modo previo)",
+        ],
+    )
+    modo = utils.prompt_optional("Elige modo (1/2, default 1)")
     if modo == '' or modo == '1':
         # seleccionar columnas necesarias
         # detectar columna RUT_SIN_DV (frecuente 'RUT_SIN_DV' o 'RUT_SIN_D V' o 'RUT SIN DV')
@@ -446,12 +444,12 @@ def main():
                 col_rut_sin = p
                 break
         if col_rut_sin is None:
-            console.print("Columnas disponibles para seleccionar RUT_SIN_DV:")
+            utils.print_info("Columnas disponibles para seleccionar RUT_SIN_DV:")
             for c in df.columns:
-                console.print(f" - {c}")
-            col_rut_sin = console.input("[green]👉 Ingresa el nombre de la columna que contiene RUT_SIN_DV (ej: 'RUT_SIN_DV' o 'RUT'): [/] ").strip()
+                utils.console.print(f" - {c}")
+            col_rut_sin = utils.prompt_required("Ingresa el nombre de la columna que contiene RUT_SIN_DV (ej: 'RUT_SIN_DV' o 'RUT')")
             if col_rut_sin == '':
-                console.print(Panel.fit("[red]❌ No se indicó columna de RUT_SIN_DV. Abortando.[/red]", style="bold red"))
+                utils.print_error("No se indicó columna de RUT_SIN_DV. Abortando.")
                 return
 
         # columna de RUT RAZON (para clasificar IP/CFT)
@@ -461,16 +459,16 @@ def main():
                 col_rut_razon = opt
                 break
         if col_rut_razon is None:
-            console.print("Columnas disponibles (elije la que contiene Nombre/Razón o RUT RAZON):")
+            utils.print_info("Columnas disponibles (elige la que contiene Nombre/Razón o RUT RAZON):")
             for c in df.columns:
-                console.print(f" - {c}")
-            col_rut_razon = console.input("[green]👉 Ingresa el nombre de la columna que contiene 'RUT RAZON' o 'NOMBRE RAZON' (o deja vacío para no usar): [/] ").strip()
+                utils.console.print(f" - {c}")
+            col_rut_razon = utils.prompt_optional("Ingresa el nombre de la columna que contiene 'RUT RAZON' o 'NOMBRE RAZON' (o deja vacío para no usar)")
             if col_rut_razon == '':
                 col_rut_razon = None
 
         # si se solicitó modo no interactivo sin mapping, abortar
         if args.no_interactive and not mapping:
-            console.print(Panel.fit("[red]Modo no-interactive activado pero no se entregó --map. Abortando.[/red]", style="bold red"))
+            utils.print_error("Modo no-interactive activado pero no se entregó --map. Abortando.")
             return
 
         procesados, movimientos = procesar_por_filas(
@@ -487,14 +485,14 @@ def main():
                     w.writerow(['Fila', 'RUT_SIN_DV', 'Archivo', 'Categoria'])
                     for r in movimientos:
                         w.writerow(r)
-                console.print(Panel.fit(f"📄 Resumen guardado en: {resumen_csv}", style="bold green"))
+                utils.print_success(f"Resumen guardado en: {resumen_csv}")
             except Exception as e:
                 logging.error(f"No se pudo escribir resumen CSV: {e}")
 
     else:
         procesados = procesar_carpeta_fuente(ruta_fuente, ruta_mes, df, col_cat, mover=mover, dry_run=dry_run)
 
-    console.print(Panel.fit(f"📌 Registro guardado en: {log_file}", style="bold blue"))
+    utils.print_info(f"Registro guardado en: {log_file}")
 
 
 if __name__ == '__main__':

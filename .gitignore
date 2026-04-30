@@ -29,6 +29,7 @@ venv/
 .venv/
 env/
 .env/
+.env
 
 # IDE / editor
 .idea/
@@ -50,7 +51,13 @@ htmlcov/
 # Archivos generados por los scripts (por si se ejecutan en la raíz)
 revision_carpetas.xlsx
 *.log
+*.jsonl
+
+# Estado local de idempotencia / runtime
+.state/
+*.sqlite3
 
 # Sistema
 .DS_Store
 Thumbs.db
+nul

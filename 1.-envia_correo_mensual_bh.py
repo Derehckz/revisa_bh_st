@@ -4,7 +4,6 @@ from outlook_utils import conectar_outlook_app
 import time
 import logging
 from tqdm import tqdm
-from colorama import Fore, init as colorama_init
 import tempfile
 import shutil
 import argparse
@@ -12,9 +11,8 @@ import argparse
 import config
 import utils
 import email_templates as templates
-
-# Inicializar colorama
-colorama_init(autoreset=True)
+import schema_validator
+import idempotency_store
 
 
 
@@ -23,12 +21,7 @@ def mostrar_previsualizacion(tipo_envio, cantidad_correos, mes, ano, df=None, in
     Muestra una previsualización de las configuraciones y fecha que se usarán
     antes de enviar los correos.
     """
-    from rich.console import Console
-    from rich.panel import Panel
     from rich.table import Table
-    from datetime import datetime
-    
-    console = Console()
     
     # Crear tabla con configuraciones
     tabla = Table(title=f"⚙️ PREVISUALIZACIÓN - Envío {tipo_envio.upper()}", style="cyan")
@@ -45,11 +38,11 @@ def mostrar_previsualizacion(tipo_envio, cantidad_correos, mes, ano, df=None, in
     if config.EMAIL_XML_2:
         tabla.add_row("📧 Email XML Secundario", config.EMAIL_XML_2)
     
-    console.print(tabla)
+    utils.console.print(tabla)
     
     # Mostrar muestra de destinatarios si hay
     if df is not None and indices is not None and len(indices) > 0:
-        console.print("\n📋 [bold cyan]MUESTRA DE DESTINATARIOS ([yellow]{}/{} primeros[/yellow])[/bold cyan]".format(
+        utils.console.print("\n📋 [bold cyan]MUESTRA DE DESTINATARIOS ([yellow]{}/{} primeros[/yellow])[/bold cyan]".format(
             min(5, len(indices)), len(indices)
         ))
         tabla_dest = Table(style="dim white")
@@ -64,10 +57,10 @@ def mostrar_previsualizacion(tipo_envio, cantidad_correos, mes, ano, df=None, in
                 str(df.at[idx, "RUT RAZON"])
             )
         
-        console.print(tabla_dest)
+        utils.console.print(tabla_dest)
         
         if len(indices) > 5:
-            console.print(f"[yellow]... y {len(indices) - 5} destinatarios más[/yellow]")
+            utils.console.print(f"[yellow]... y {len(indices) - 5} destinatarios más[/yellow]")
 
 
 def enviar_correo(outlook, email_destino, email_cc, asunto, cuerpo_html, ruta_adjunto=None):
@@ -127,6 +120,9 @@ def enviar_correos(df, indices, tipo="original"):
             cc_combined = "; ".join(cc_list)
 
             if isinstance(email, str) and utils.validar_email(email):
+                item_key = f"{tipo}|{año}|{mes}|{rut_docente}|{email}".lower()
+                if idempotency_store.report_duplicate("script1.mail_attempt", item_key):
+                    logging.warning(f"Duplicado detectado (solo reporte): {item_key}")
                 enviado = False
                 for intento in range(3):
                     try:
@@ -144,36 +140,31 @@ def enviar_correos(df, indices, tipo="original"):
                         df.at[idx, columna_envio] = "✅ Enviado (recordatorio)"
 
                     logging.info(f"Correo ({tipo}) enviado a {email} (fila {idx+1})")
-                    print(Fore.GREEN + f"[✅] Correo ({tipo}) enviado a {email} (fila {idx+1})")
+                    utils.print_success(f"Correo ({tipo}) enviado a {email} (fila {idx+1})")
                 else:
                     df.at[idx, columna_envio] = f"❌ Error envío ({tipo})"
                     logging.error(f"No se pudo enviar el correo ({tipo}) a {email} después de 3 intentos")
-                    print(Fore.RED + f"[❌] No se pudo enviar el correo ({tipo}) a {email} (fila {idx+1})")
+                    utils.print_error(f"No se pudo enviar el correo ({tipo}) a {email} (fila {idx+1})")
 
             else:
                 df.at[idx, columna_envio] = f"❌ Correo inválido ({tipo})"
                 logging.warning(f"Correo inválido ({tipo}) en fila {idx+1}: {email}")
-                print(Fore.YELLOW + f"[❌] Correo inválido ({tipo}) en fila {idx+1}: {email}")
+                utils.print_warning(f"Correo inválido ({tipo}) en fila {idx+1}: {email}")
 
             time.sleep(1.5)
 
         except Exception as e:
             df.at[idx, columna_envio] = f"❌ Error: {e} ({tipo})"
             logging.error(f"Error inesperado ({tipo}) en fila {idx+1}: {e}")
-            print(Fore.RED + f"[❌] Fila {idx+1}: {e} ({tipo})")
+            utils.print_error(f"Fila {idx+1}: {e} ({tipo})")
 
 def main(args):
-    from rich.console import Console
-    from rich.panel import Panel
     from rich.table import Table
-    import utils
 
-    console = Console()
-
-    console.print(Panel.fit("🚀 [bold cyan]INICIO DE PROCESO DE ENVÍO DE CORREOS[/bold cyan]\nBoletas de Honorarios", style="bold green", padding=(1, 2)))
+    utils.print_header("🚀 INICIO DE PROCESO DE ENVÍO DE CORREOS", "Boletas de Honorarios")
 
     if not os.path.isfile(config.ARCHIVO_ADJUNTO):
-        console.print(f"[red]❌ Archivo adjunto no encontrado: {config.ARCHIVO_ADJUNTO}[/red]")
+        utils.print_error(f"Archivo adjunto no encontrado: {config.ARCHIVO_ADJUNTO}")
         return
 
     if args.year and args.month:
@@ -181,18 +172,18 @@ def main(args):
         mes_seleccionado = args.month
         ruta_mes = os.path.join(config.RAIZ, ano_seleccionado, mes_seleccionado)
         if not os.path.exists(ruta_mes):
-            console.print(f"[red]❌ Ruta no existe: {ruta_mes}[/red]")
+            utils.print_error(f"Ruta no existe: {ruta_mes}")
             return
     else:
         try:
             ano_seleccionado, mes_seleccionado = utils.seleccionar_año_mes(config.RAIZ)
         except ValueError as e:
-            console.print(f"[red]❌ {e}[/red]")
+            utils.print_error(str(e))
             return
         ruta_mes = os.path.join(config.RAIZ, ano_seleccionado, mes_seleccionado)
     archivos = [f for f in os.listdir(ruta_mes) if f.lower().endswith('.xlsx')]
     if not archivos:
-        console.print(f"[red]❌ No se encontró archivo Excel en {ruta_mes}[/red]")
+        utils.print_error(f"No se encontró archivo Excel en {ruta_mes}")
         return
     archivo_excel = archivos[0] if len(archivos) == 1 else utils.seleccionar_opcion(archivos, "Seleccione el archivo Excel")
 
@@ -207,11 +198,45 @@ def main(args):
         xls = pd.ExcelFile(ruta_archivo_excel, engine='openpyxl')
         hojas = xls.sheet_names
     except (OSError, ValueError, KeyError) as e:
-        console.print(f"[red]❌ Error al leer el Excel: {e}[/red]")
+        utils.print_error(f"Error al leer el Excel: {e}")
         return
 
     hoja_seleccionada = utils.seleccionar_opcion(hojas, "Seleccione la hoja del Excel para validar")
     df = pd.read_excel(ruta_archivo_excel, sheet_name=hoja_seleccionada, engine='openpyxl')
+
+    schema_issues = []
+    schema_issues.extend(
+        schema_validator.validate_required_columns(
+            df.columns,
+            [
+                "NAME",
+                "EMPLID",
+                "RUT RAZON",
+                "NOMBRE RAZON",
+                "DireccionRazon",
+                "GLOSA",
+                "CUS_TOT_HON",
+                "Email_Docente",
+                "MONTH",
+                "YEAR",
+                "Estado_Recepcion",
+            ],
+        )
+    )
+    schema_issues.extend(
+        schema_validator.validate_types(
+            df,
+            {
+                "NAME": (str,),
+                "Email_Docente": (str,),
+                "MONTH": (str, int),
+                "YEAR": (int, float, str),
+            },
+        )
+    )
+    for warning_line in schema_validator.format_issues(schema_issues, "script1"):
+        logging.warning(warning_line)
+        utils.print_warning(warning_line)
 
     columna_envio = 'Correo Enviado'
     columna_estado = 'Estado_Recepcion'
@@ -221,10 +246,10 @@ def main(args):
     df[columna_envio] = df[columna_envio].astype(object)
 
     if columna_estado not in df.columns:
-        console.print(f"[red]❌ No se encontró la columna '{columna_estado}' en el archivo Excel.[/red]")
+        utils.print_error(f"No se encontró la columna '{columna_estado}' en el archivo Excel.")
         return
 
-    console.print(f"\n📨 [bold]Iniciando análisis de {len(df)} filas...[/bold]")
+    utils.print_info(f"Iniciando análisis de {len(df)} filas...")
 
     envio_col = df[columna_envio].astype(str).str.lower().str.strip()
     # Normalizar columna de estado para búsquedas más robustas
@@ -245,12 +270,12 @@ def main(args):
     # Ayuda rápida si no se encontró ninguna fila como 'no recibido'
     if len(indices_recordatorio) == 0:
         unique_vals = df[columna_estado].astype(str).str.strip().value_counts().head(10)
-        console.print(f"[yellow]⚠️ No se encontraron filas con estado 'no recibido'. Valores únicos más comunes en '{columna_estado}':[/yellow]")
+        utils.print_warning(f"No se encontraron filas con estado 'no recibido'. Valores únicos más comunes en '{columna_estado}':")
         for val, cnt in unique_vals.items():
-            console.print(f"  {cnt}x -> {val}")
+            utils.console.print(f"  {cnt}x -> {val}")
 
-    console.print(f"\n📧 [blue]Pendientes de envío original:[/blue] [bold]{len(indices_sin_envio)}[/bold]")
-    console.print(f"🔁 [magenta]Pendientes para recordatorio:[/magenta] [bold]{len(indices_recordatorio)}[/bold]")
+    utils.print_info(f"Pendientes de envío original: {len(indices_sin_envio)}")
+    utils.print_info(f"Pendientes para recordatorio: {len(indices_recordatorio)}")
 
     if len(indices_recordatorio) > 0:
         tabla = Table(title="📋 Destinatarios para RECORDATORIO", style="magenta")
@@ -261,33 +286,33 @@ def main(args):
         for i, idx in enumerate(indices_recordatorio, 1):
             prev = "Sí" if "recordatorio" in str(df.at[idx, columna_envio]).lower() else "No"
             tabla.add_row(str(i), df.at[idx, "NAME"], df.at[idx, "Email_Docente"], prev)
-        console.print(tabla)
+        utils.console.print(tabla)
 
     # Confirmación envío original
-    console.print("\n🤖 ¿Desea continuar con el [bold]envío de correos originales[/bold]? ([green]s[/green]/[red]n[/red])")
+    utils.print_info("¿Desea continuar con el envío de correos originales? (s/n)")
     if len(indices_sin_envio) > 0:
-        console.print(f"\n[bold cyan]Mostrando previsualización antes de enviar...[/bold cyan]")
+        utils.print_info("Mostrando previsualización antes de enviar...")
         mostrar_previsualizacion("correo original", len(indices_sin_envio), mes_seleccionado, ano_seleccionado, df, indices_sin_envio)
-        console.print("\n🤖 ¿Desea [bold cyan]CONFIRMAR[/bold cyan] el envío de [bold green]{} correos originales[/bold green]? ([green]s[/green]/[red]n[/red])".format(len(indices_sin_envio)))
-        if input("➡️ Respuesta: ").strip().lower() == 's':
+        utils.print_info(f"¿Desea CONFIRMAR el envío de {len(indices_sin_envio)} correos originales? (s/n)")
+        if utils.prompt_yes_no_s("Respuesta (s/n)", default="n"):
             enviar_correos(df, indices_sin_envio, tipo="original")
         else:
-            console.print("[yellow]🚫 Envío cancelado por el usuario.[/yellow]")
+            utils.print_warning("Envío cancelado por el usuario.")
     else:
-        console.print("[yellow]⚠️ No hay correos pendientes para envío original.[/yellow]")
+        utils.print_warning("No hay correos pendientes para envío original.")
 
     # Confirmación envío recordatorio
     if len(indices_recordatorio) > 0:
-        console.print("\n🤖 ¿Desea enviar/re-enviar [bold]recordatorios[/bold] a los que aún no han enviado la boleta? ([green]s[/green]/[red]n[/red])")
-        console.print(f"\n[bold cyan]Mostrando previsualización antes de enviar...[/bold cyan]")
+        utils.print_info("¿Desea enviar/re-enviar recordatorios a los que aún no han enviado la boleta? (s/n)")
+        utils.print_info("Mostrando previsualización antes de enviar...")
         mostrar_previsualizacion("recordatorio", len(indices_recordatorio), mes_seleccionado, ano_seleccionado, df, indices_recordatorio)
-        console.print("\n🤖 ¿Desea [bold cyan]CONFIRMAR[/bold cyan] el envío de [bold magenta]{} recordatorios[/bold magenta]? ([green]s[/green]/[red]n[/red])".format(len(indices_recordatorio)))
-        if input("➡️ Respuesta: ").strip().lower() == 's':
+        utils.print_info(f"¿Desea CONFIRMAR el envío de {len(indices_recordatorio)} recordatorios? (s/n)")
+        if utils.prompt_yes_no_s("Respuesta (s/n)", default="n"):
             enviar_correos(df, indices_recordatorio, tipo="recordatorio")
         else:
-            console.print("[yellow]🚫 Envío de recordatorios cancelado por el usuario.[/yellow]")
+            utils.print_warning("Envío de recordatorios cancelado por el usuario.")
     else:
-        console.print("[yellow]⚠️ No hay destinatarios para recordatorio.[/yellow]")
+        utils.print_warning("No hay destinatarios para recordatorio.")
 
     # Guardar Excel actualizado
     try:
@@ -301,13 +326,13 @@ def main(args):
         with pd.ExcelWriter(temp_file, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name=hoja_seleccionada)
         shutil.move(temp_file, ruta_archivo_excel)
-        console.print(Panel.fit(f"✅ Archivo guardado correctamente en:\n[green]{ruta_archivo_excel}[/green]", style="bold green"))
+        utils.print_success(f"Archivo guardado correctamente en: {ruta_archivo_excel}")
         logging.info(f"Archivo guardado correctamente en {ruta_archivo_excel}")
     except (OSError, IOError, PermissionError) as e:
-        console.print(Panel.fit(f"❌ Error al guardar archivo Excel:\n{e}", style="bold red"))
+        utils.print_error(f"Error al guardar archivo Excel: {e}")
         logging.error(f"Error al guardar archivo Excel: {e}")
 
-    console.print(Panel.fit("🎯 [bold cyan]PROCESO FINALIZADO EXITOSAMENTE[/bold cyan]", style="bold blue", padding=(1, 2)))
+    utils.print_header("🎯 PROCESO FINALIZADO EXITOSAMENTE", "Correos enviados correctamente")
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Envío de correos de boletas de honorarios")
     parser.add_argument('--year', type=str, help='Año específico')

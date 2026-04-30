@@ -8,8 +8,6 @@ import tempfile
 from openpyxl import load_workbook
 import logging
 from datetime import datetime
-from colorama import init
-from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.panel import Panel
@@ -17,9 +15,7 @@ from rich.text import Text
 from rich.logging import RichHandler
 import utils
 
-# Inicialización de Colorama y Rich
-init(autoreset=True)
-console = Console()
+console = utils.console
 
 # Configuración global
 import config
@@ -440,7 +436,7 @@ def procesar_filas(df, ruta_carpeta):
 
     imprimir_resumen_rich(df, revis_ini, revis_fin)
     logging.info(f"Resumen final - Revisados inicio: {revis_ini}, final: {revis_fin}, Total: {total}")
-    console.print("[bold green]✔️ Proceso completado con éxito.[/]")
+    utils.print_success("Proceso completado con éxito.")
 
     return df
 
@@ -457,9 +453,9 @@ def guardar_excel(df, ruta_excel, hoja):
         with pd.ExcelWriter(tmp, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name=hoja)
         shutil.move(tmp, ruta_excel)
-        console.print(f"[cyan]📜 Archivo guardado correctamente:[/] {ruta_excel}")
+        utils.print_success(f"Archivo guardado correctamente: {ruta_excel}")
     except (OSError, IOError) as e:
-        console.print(f"[red]⚠️ Error guardando archivo Excel:[/] {e}")
+        utils.print_error(f"Error guardando archivo Excel: {e}")
 
 
 def seleccionar_opcion(lista, mensaje, icono=""):
@@ -468,16 +464,16 @@ def seleccionar_opcion(lista, mensaje, icono=""):
 
 
 def main():
-    console.print("[bold cyan]=== 📂 Validación de recepción PDF y XML ===[/]\n")
+    utils.print_header("📂 VALIDACIÓN DE RECEPCIÓN PDF Y XML")
     años = utils.listar_carpetas(RAIZ)
     if not años:
-        console.print("[red]⚠️ No hay carpetas de año en la ruta configurada.[/]")
+        utils.print_error("No hay carpetas de año en la ruta configurada.")
         return
     año = seleccionar_opcion(sorted(años),"Seleccione el año:","🗓️")
     ruta_año = os.path.join(RAIZ,año)
     meses = utils.listar_carpetas(ruta_año)
     if not meses:
-        console.print(f"[red]⚠️ No hay carpetas de mes en {ruta_año}[/]")
+        utils.print_error(f"No hay carpetas de mes en {ruta_año}")
         return
     mes = seleccionar_opcion(sorted(meses),"Seleccione el mes:","🗓️")
     ruta_mes = os.path.join(ruta_año,mes)
@@ -489,7 +485,7 @@ def main():
 
     ruta_excel = os.path.join(ruta_mes,"Solicitud.xlsx")
     if not os.path.isfile(ruta_excel):
-        console.print(f"[red]⚠️ No se encontró archivo Excel en {ruta_excel}[/]")
+        utils.print_error(f"No se encontró archivo Excel en {ruta_excel}")
         return
 
     wb = load_workbook(ruta_excel, read_only=True)
@@ -510,12 +506,12 @@ def main():
     )
     with open(ruta_reporte, "w", encoding="utf-8") as f:
         f.write(reporte)
-    console.print(f"[green]📄 Reporte generado en:[/] {ruta_reporte}")
+    utils.print_success(f"Reporte generado en: {ruta_reporte}")
 
     guardar_excel(df_actualizado, ruta_excel, hoja)
 
     logging.info("Proceso completado.")
-    console.print("[blue bold]\n🎯 ¡Validación finalizada correctamente! Revisa los logs para detalles.[/]")
+    utils.print_success("🎯 Validación finalizada correctamente. Revisa los logs para detalles.")
 
 if __name__ == "__main__":
     main()

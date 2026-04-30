@@ -8,13 +8,11 @@ import os
 import sys
 import subprocess
 import argparse
-from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
 import config
 import utils
+import idempotency_store
 
-console = Console()
+console = utils.console
 
 SCRIPTS = [
     ("1.-envia_correo_mensual_bh.py", "Envío de correos iniciales"),
@@ -57,17 +55,22 @@ def check_prerequisites(step, year=None, month=None):
 
 def run_script(script_name, description, year=None, month=None):
     """Ejecuta un script con argumentos opcionales."""
+    stage_key = f"{script_name}|{year or 'NA'}|{month or 'NA'}"
+    utils.set_correlation_id(stage_key)
+    if idempotency_store.report_duplicate("main.run_script", stage_key):
+        utils.print_warning(f"Duplicado detectado (solo reporte): {stage_key}")
+
     cmd = [sys.executable, script_name]
     if year:
         cmd.extend(["--year", year])
     if month:
         cmd.extend(["--month", month])
 
-    console.print(f"[cyan]Ejecutando: {description}[/cyan]")
+    utils.print_info(f"Ejecutando: {description}")
     result = subprocess.run(cmd, cwd=os.getcwd())
     if result.returncode != 0:
         raise RuntimeError(f"Error en {script_name}: {result.returncode}")
-    console.print(f"[green]✅ Completado: {description}[/green]")
+    utils.print_success(f"Completado: {description}")
 
 def main():
     parser = argparse.ArgumentParser(description="Flujo maestro de boletas de honorarios")
@@ -78,7 +81,7 @@ def main():
     parser.add_argument("--non-interactive", action="store_true", help="Ejecutar sin pausas interactivas")
     args = parser.parse_args()
 
-    console.print(Panel.fit("🚀 [bold cyan]FLUJO MAESTRO DE BOLETAS DE HONORARIOS[/bold cyan]", style="bold green"))
+    utils.print_header("🚀 FLUJO MAESTRO DE BOLETAS DE HONORARIOS")
 
     start = args.start_from or 1
     end = args.end_at or 10
@@ -92,16 +95,16 @@ def main():
             run_script(script, desc, args.year, args.month)
             
             if not args.non_interactive and i < end:
-                console.print(f"\n[bold yellow]¿Continuar al siguiente paso ({i+1}: {SCRIPTS[i][1]})?[/bold yellow]")
-                respuesta = input("Presione Enter para continuar, 'n' para detener: ").strip().lower()
+                utils.print_info(f"¿Continuar al siguiente paso ({i+1}: {SCRIPTS[i][1]})?")
+                respuesta = utils.prompt_optional("Presione Enter para continuar, 'n' para detener")
                 if respuesta == 'n':
-                    console.print("[yellow]Flujo detenido por el usuario.[/yellow]")
+                    utils.print_warning("Flujo detenido por el usuario.")
                     break
         except Exception as e:
-            console.print(f"[red]❌ Error en paso {i}: {e}[/red]")
+            utils.print_error(f"Error en paso {i}: {e}")
             sys.exit(1)
 
-    console.print(Panel.fit("🎉 [bold green]FLUJO COMPLETADO EXITOSAMENTE[/bold green]", style="bold blue"))
+    utils.print_header("🎉 FLUJO COMPLETADO EXITOSAMENTE")
 
 if __name__ == "__main__":
     main()

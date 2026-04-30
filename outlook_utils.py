@@ -1,13 +1,10 @@
 import win32com.client
 import logging
 from datetime import datetime
-from rich.console import Console
 
 import utils
 
 utils.asegurar_utf8_salida()
-
-console = Console()
 
 def conectar_outlook_app():
     """
@@ -47,9 +44,9 @@ def filtrar_correos_por_fecha(folder, fecha_inicio: datetime, fecha_fin: datetim
         filtrados = items.Restrict(filtro)
         mensajes = [msg for msg in filtrados if getattr(msg, "Class", None) == 43]
         logging.info(f"✅ Correos encontrados en rango: {len(mensajes)}")
-        console.print(f"[green]✅ Correos encontrados en rango: {len(mensajes)}[/green]")
+        utils.print_success(f"Correos encontrados en rango: {len(mensajes)}")
         return mensajes
     except Exception as e:
         logging.error(f"❌ Error al filtrar correos: {e}")
-        console.print(f"[red]❌ Error al filtrar correos: {e}[/red]")
+        utils.print_error(f"Error al filtrar correos: {e}")
         return []

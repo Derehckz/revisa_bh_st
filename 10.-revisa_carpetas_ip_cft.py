@@ -3,13 +3,11 @@ import re
 import logging
 from datetime import datetime
 import pandas as pd
-from rich.console import Console
-from rich.panel import Panel
 from rich.progress import Progress, BarColumn, TimeElapsedColumn, TextColumn
-from colorama import init as colorama_init
 import argparse
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import cpu_count
 import utils
 
 # Opcionales para OCR/inspección
@@ -106,8 +104,7 @@ def estandarizar_nombres_en_carpeta(ruta_docente, rut, opts):
     return cambios
 
 # Inicialización
-colorama_init(autoreset=True)
-console = Console()
+console = utils.console
 
 # Configuración
 import config
@@ -289,12 +286,11 @@ def _guardar_excel_revision(ruta_mes, df, estadisticas):
     if OPENPYXL_AVAILABLE:
         _aplicar_formato_condicional_excel(salida_excel, ruta_mes)
 
-    console.print(Panel.fit(f"✅ Archivo de revisión guardado en: {salida_excel}", style="bold green"))
-    console.print(Panel.fit(
+    utils.print_success(f"Archivo de revisión guardado en: {salida_excel}")
+    utils.print_info(
         f"📊 {total_encontrado}/{total_esperado} archivos presentes ({pct_presente:.2f}%). "
-        f"Carpetas completas: {carpetas_completas}/{total_carpetas}. Faltan: {total_faltante} archivos.",
-        style="cyan"
-    ))
+        f"Carpetas completas: {carpetas_completas}/{total_carpetas}. Faltan: {total_faltante} archivos."
+    )
     return True
 
 
@@ -492,12 +488,12 @@ def main():
     parser.add_argument('--processes', type=int, default=max(1, cpu_count()-1), help='Número de procesos paralelos')
     args = parser.parse_args()
 
-    console.print(Panel.fit("[bold cyan]🔎 Revisión de carpetas IP/CFT[/bold cyan]", style="bold green"))
+    utils.print_header("🔎 REVISIÓN DE CARPETAS IP/CFT")
 
     # Selección año/mes
     años = utils.listar_carpetas(RAIZ)
     if not años:
-        console.print("No hay carpetas de año en la ruta configurada.")
+        utils.print_error("No hay carpetas de año en la ruta configurada.")
         return
 
     año = args.year if args.year else utils.seleccionar_opcion(sorted(años), "Seleccione el año:", "🗓️")
@@ -505,7 +501,7 @@ def main():
 
     meses = [d for d in os.listdir(ruta_año) if os.path.isdir(os.path.join(ruta_año, d))]
     if not meses:
-        console.print(f"No hay carpetas de mes en {ruta_año}")
+        utils.print_error(f"No hay carpetas de mes en {ruta_año}")
         return
 
     mes = args.month if args.month else utils.seleccionar_opcion(sorted(meses), "Seleccione el mes:", "🗓️")
@@ -519,13 +515,13 @@ def main():
             institutos.append(d)
 
     if not institutos:
-        console.print(Panel.fit("No se encontraron carpetas 'IP' o 'CFT' en el mes seleccionado.", style="yellow"))
+        utils.print_warning("No se encontraron carpetas 'IP' o 'CFT' en el mes seleccionado.")
         return
 
     if args.institucion:
         institutos = [i for i in institutos if i.upper() == args.institucion.upper()]
 
-    console.print(f"Se analizarán las siguientes instituciones: {', '.join(institutos)}")
+    utils.print_info(f"Se analizarán las siguientes instituciones: {', '.join(institutos)}")
 
     # Preparar lista de trabajos
     trabajos = []
@@ -537,12 +533,12 @@ def main():
 
     # Ejecutar en paralelo
     procesos = max(1, args.processes)
-    console.print(f"Usando {procesos} procesos para analizar {len(trabajos)} carpetas...")
+    utils.print_info(f"Usando {procesos} procesos para analizar {len(trabajos)} carpetas...")
     registros = ejecutar_trabajos(trabajos, procesos)
 
     # Si no se obtuvo ningún registro, ofrecer opciones interactivas para re-evaluar
     if not registros:
-        console.print(Panel.fit("No se encontraron docentes para analizar. Esto puede deberse a que las carpetas ya están marcadas como revisadas (archivo .revisado).", style="yellow"))
+        utils.print_warning("No se encontraron docentes para analizar. Puede deberse a carpetas ya marcadas como revisadas (.revisado).")
         opciones = [
             "Re-evaluar ahora (ignorar marcadores .revisado)",
             "Eliminar marcadores .revisado y reintentar",
@@ -551,23 +547,23 @@ def main():
         eleccion = utils.seleccionar_opcion(opciones, "¿Qué quieres hacer?", "❓")
         if eleccion == opciones[0]:
             args.force = True
-            console.print("Re-evaluando ignorando marcadores (.revisado)...")
+            utils.print_info("Re-evaluando ignorando marcadores (.revisado)...")
             registros = ejecutar_trabajos(trabajos, procesos)
         elif eleccion == opciones[1]:
             if args.dry_run:
-                console.print("Estás en modo --dry-run: no se eliminarán los marcadores. Ejecuta sin --dry-run para borrar.")
+                utils.print_warning("Estás en modo --dry-run: no se eliminarán los marcadores. Ejecuta sin --dry-run para borrar.")
             else:
                 n = eliminar_marcadores(ruta_mes, institutos)
-                console.print(f"Se eliminaron {n} marcadores. Reintentando análisis...")
+                utils.print_info(f"Se eliminaron {n} marcadores. Reintentando análisis...")
                 registros = ejecutar_trabajos(trabajos, procesos)
         else:
-            console.print("Saliendo sin procesar.")
+            utils.print_warning("Saliendo sin procesar.")
             return
 
     # Guardar resultados en Excel dentro de la carpeta del mes
     df = pd.DataFrame(registros)
     if df.empty:
-        console.print(Panel.fit("No se encontraron docentes para analizar.", style="yellow"))
+        utils.print_warning("No se encontraron docentes para analizar.")
         return
 
     estadisticas = _calcular_estadisticas_revision(df)

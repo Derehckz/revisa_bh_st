@@ -3,15 +3,8 @@ import re
 import pandas as pd
 import logging
 from datetime import datetime
-from rich.console import Console
-from rich.panel import Panel
 from rich.progress import Progress, BarColumn, TimeElapsedColumn, TextColumn
-from colorama import init as colorama_init, Fore
 import utils
-
-# Inicialización
-colorama_init(autoreset=True)
-console = Console()
 
 # Configuración básica
 import config
@@ -19,6 +12,8 @@ RAIZ = config.RAIZ
 ZONA_HORARIA = config.ZONA_HORARIA
 MESES_ES = config.MESES_ES
 PREFIJO = config.PREFIJO
+
+console = utils.console
 
 
 def obtener_institucion(location):
@@ -93,7 +88,7 @@ def procesar_docentes(df, ruta_mes):
                 
                 # Mostrar en consola
                 progress.update(task, docente=f"{emplid_name}")
-                console.print(f"[cyan]Docente:[/] {emplid_name} ({institucion})")
+                utils.print_info(f"Docente: {emplid_name} ({institucion})")
                 logging.info(f"Carpeta creada/verificada: {carpeta_docente}")
                 
                 docentes_info.append((idx+1, emplid, name, rut_sin_dv, institucion, emplid_name))
@@ -101,34 +96,33 @@ def procesar_docentes(df, ruta_mes):
                 
             except Exception as e:
                 logging.error(f"Error procesando fila {idx+1}: {e}")
-                console.print(Fore.RED + f"[ERROR] Fila {idx+1}: {e}")
+                utils.print_error(f"Fila {idx+1}: {e}")
             
             progress.advance(task)
     
-    console.print(Panel.fit(
-        f"✅ Proceso finalizado\n"
-        f"Docentes procesados: {docentes_procesados}",
-        style="bold green"
-    ))
+    utils.print_success(
+        f"Proceso finalizado\n"
+        f"Docentes procesados: {docentes_procesados}"
+    )
     
     return docentes_procesados, docentes_info
 
 
 def main():
-    console.print(Panel.fit("[bold cyan]📁 Agrupa docentes por Institución (IP/CFT)[/bold cyan]", style="bold green"))
+    utils.print_header("📁 Agrupa docentes por Institución (IP/CFT)", "Creación de estructura de carpetas")
     
     # Selección año/mes
     try:
         año, mes = utils.seleccionar_año_mes(RAIZ)
     except ValueError as e:
-        console.print(Panel.fit(f"[red]⚠️ {e}[/red]", style="bold red"))
+        utils.print_error(str(e))
         return
     ruta_mes = os.path.join(RAIZ, año, mes)
     
     # Buscar Solicitud.xlsx
     ruta_excel = os.path.join(ruta_mes, "Solicitud.xlsx")
     if not os.path.isfile(ruta_excel):
-        console.print(Panel.fit(f"[red]❌ No se encontró archivo Solicitud.xlsx en {ruta_mes}[/red]", style="bold red"))
+        utils.print_error(f"No se encontró archivo Solicitud.xlsx en {ruta_mes}")
         return
     
     # Cargar Excel (preferir hoja 'Resumen de Boletas' si existe)
@@ -136,19 +130,19 @@ def main():
         xls = pd.ExcelFile(ruta_excel, engine='openpyxl')
         hojas = xls.sheet_names
     except (OSError, ValueError, KeyError) as e:
-        console.print(Panel.fit(f"[red]❌ Error leyendo Excel: {e}[/red]", style="bold red"))
+        utils.print_error(f"Error leyendo Excel: {e}")
         return
 
     if 'Resumen de Boletas' in hojas:
         hoja = 'Resumen de Boletas'
-        console.print(Panel.fit("Usando hoja 'Resumen de Boletas' (aprobadas para pago)", style="cyan"))
+        utils.print_info("Usando hoja 'Resumen de Boletas' (aprobadas para pago)")
     else:
         hoja = utils.seleccionar_opcion(hojas, "Seleccione la hoja del Excel:", "📄")
 
     try:
         df = pd.read_excel(ruta_excel, sheet_name=hoja, engine='openpyxl')
     except (OSError, ValueError, KeyError) as e:
-        console.print(Panel.fit(f"[red]❌ Error leyendo hoja '{hoja}': {e}[/red]", style="bold red"))
+        utils.print_error(f"Error leyendo hoja '{hoja}': {e}")
         return
 
     # Normalizar nombres de columnas y crear columnas canónicas
@@ -164,7 +158,7 @@ def main():
     col_loc = next((c for c in col_loc_candidates if c in df.columns), None)
 
     if col_rut is None or col_name is None or col_loc is None:
-        console.print(Panel.fit(f"[red]❌ No se encontraron columnas necesarias. Buscando columnas: RUT, Nombre Docente, LOCATION. Columnas encontradas: {list(df.columns)}[/red]", style="bold red"))
+        utils.print_error(f"No se encontraron columnas necesarias. Buscando columnas: RUT, Nombre Docente, LOCATION. Columnas encontradas: {list(df.columns)}")
         return
 
     # Crear columnas canónicas para procesar
@@ -191,7 +185,7 @@ def main():
         dup_csv = os.path.join(carpeta_logs, f'duplicados_agrupa_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
         try:
             df_duplicates.to_csv(dup_csv, index=False, encoding='utf-8')
-            console.print(Panel.fit(f"📄 Se detectaron duplicados. Archivo con duplicados: {dup_csv}", style="yellow"))
+            utils.print_warning(f"Se detectaron duplicados. Archivo con duplicados: {dup_csv}")
             logging.info(f"Duplicados guardados en: {dup_csv}")
         except OSError as e:
             logging.error(f"Error guardando CSV de duplicados: {e}")
@@ -222,12 +216,12 @@ def main():
                 w.writerow(['Fila', 'EMPLID', 'Nombre', 'RUT_SIN_DV', 'Institucion', 'Carpeta_Creada'])
                 for info in docentes_info:
                     w.writerow(info)
-            console.print(Panel.fit(f"📄 Resumen guardado en: {resumen_csv}", style="bold green"))
+            utils.print_success(f"Resumen guardado en: {resumen_csv}")
             logging.info(f"Resumen guardado en: {resumen_csv}")
         except OSError as e:
             logging.error(f"Error guardando resumen CSV: {e}")
     
-    console.print(Panel.fit(f"📌 Log guardado en: {log_file}", style="bold blue"))
+    utils.print_info(f"Log guardado en: {log_file}")
     logging.info("Proceso completado.")
 
 

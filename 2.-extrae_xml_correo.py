@@ -3,8 +3,6 @@ import logging
 import argparse
 from datetime import datetime
 import sys
-from colorama import Fore, Style, init as colorama_init
-from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from rich.progress import Progress, BarColumn, TimeElapsedColumn, TextColumn
@@ -12,9 +10,7 @@ from rich.table import Table
 import utils
 from outlook_utils import conectar_outlook_ns, filtrar_correos_por_fecha
 
-# Inicialización
-colorama_init(autoreset=True)
-console = Console()
+console = utils.console
 
 # --- Configuración básica ---
 import config as cfg
@@ -29,7 +25,7 @@ DECISION_DUPLICADOS = None
 def imprimir_encabezado():
     texto = Text("\n📥 EXTRACCIÓN DE ADJUNTOS DE OUTLOOK", style="bold white on blue", justify="center")
     panel = Panel(texto, expand=True, border_style="blue")
-    console.print(panel)
+    utils.console.print(panel)
 
 
 def configurar_logging(fecha_referencia: datetime):
@@ -44,24 +40,11 @@ def configurar_logging(fecha_referencia: datetime):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(carpeta_logs, f"log_{timestamp}.txt")
 
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    if logger.hasHandlers():
-        logger.handlers.clear()
-
-    file_fmt = logging.Formatter(fmt="📅 %(asctime)s | [%(levelname)s] 👉 %(message)s", datefmt="%d/%m/%Y %H:%M:%S")
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(file_fmt)
-    logger.addHandler(file_handler)
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(file_fmt)
-    logger.addHandler(console_handler)
+    utils.configurar_logging(log_file)
 
     logging.info("🟢 === INICIO DEL PROCESO DE EXTRACCIÓN DE ARCHIVOS ADJUNTOS ===")
     logging.info(f"📁 Log guardado en: {log_file}")
+    logging.info(f"🧭 run_id={utils.get_run_id()} correlation_id={utils.get_correlation_id()}")
     logging.info(f"📆 Rango inicial de fecha: {fecha_referencia.strftime('%d/%m/%Y')}")
 
 
@@ -79,18 +62,19 @@ def mostrar_resumen(contador_emails, contador_guardados, contador_pdf, contador_
         tabla.add_row("Duplicados detectados", str(len(duplicados)))
         tabla.add_row("Acción aplicada", DECISION_DUPLICADOS)
 
-    console.print(tabla)
+    utils.console.print(tabla)
 
 
 def solicitar_fecha_interactiva(prompt: str) -> datetime:
     while True:
-        fecha_str = input(f"{Fore.CYAN}📅 {prompt}{Style.RESET_ALL} ")
+        fecha_str = utils.prompt_required(f"📅 {prompt}")
         try:
             fecha = datetime.strptime(fecha_str, FORMATO_FECHA_INPUT).replace(tzinfo=ZONA_HORARIA)
             logging.info(f"✔ Fecha ingresada: {fecha_str}")
             return fecha
         except ValueError:
-            logging.error("❌ Formato inválido. Por favor ingrese la fecha en formato dd/mm/yyyy.")
+            logging.error("Formato inválido. Por favor ingrese la fecha en formato dd/mm/yyyy.")
+            utils.print_error("Formato inválido. Use dd/mm/yyyy.")
 
 
 def parsear_args():
@@ -108,29 +92,30 @@ def decidir_guardado_archivos_repetidos(archivos_repetidos):
         return
 
     panel = Panel.fit(f"⚠️ Se detectaron {len(archivos_repetidos)} archivos duplicados.", title="Archivos duplicados", border_style="yellow")
-    console.print(panel)
-
-    print(f"\n{Fore.YELLOW}⚠️  Archivos duplicados detectados.{Style.RESET_ALL}")
+    utils.console.print(panel)
+    utils.print_warning("Archivos duplicados detectados.")
     while True:
-        print(f"{Fore.CYAN}¿Qué deseas hacer con ellos?{Style.RESET_ALL}")
-        print("  S = Sobrescribir todos")
-        print("  A = Guardar todos con sufijo (_1, _2, ...)")
-        print("  I = Ignorar todos")
-        print("  D = Detallar rutas duplicadas antes de decidir")
-        decision = input(f"{Fore.CYAN}Ingresa tu opción [S/A/I/D]: {Style.RESET_ALL}").strip().upper()
+        utils.print_info("¿Qué deseas hacer con ellos?")
+        utils.print_list("Opciones", [
+            "S = Sobrescribir todos",
+            "A = Guardar todos con sufijo (_1, _2, ...)",
+            "I = Ignorar todos",
+            "D = Detallar rutas duplicadas antes de decidir",
+        ])
+        decision = utils.prompt_required("Ingresa tu opción [S/A/I/D]").strip().upper()
 
         if decision == "D":
-            print(f"\n{Fore.MAGENTA}Listado de rutas duplicadas:{Style.RESET_ALL}")
+            utils.print_section("Listado de rutas duplicadas")
             for ruta in archivos_repetidos:
-                print(f" - {ruta}")
-            print("")
+                utils.console.print(f" - {ruta}")
+            utils.print_blank()
             continue
 
         if decision in ("S", "A", "I"):
             DECISION_DUPLICADOS = decision
             break
         else:
-            print(f"{Fore.RED}Opción inválida. Intente con S, A, I o D.{Style.RESET_ALL}")
+            utils.print_error("Opción inválida. Intente con S, A, I o D.")
 
 
 def resolver_conflicto(ruta_original):
@@ -149,7 +134,7 @@ def guardar_adjuntos(mensajes, dry_run=False):
     archivos_repetidos = []
     rutas_a_guardar = []
 
-    console.print(f"\n[blue]📥 Escaneando correos para extraer adjuntos 'bhe_' con PDF y XML...[/blue]")
+    utils.print_progress_status("Escaneando correos para extraer adjuntos 'bhe_' con PDF y XML...")
 
     for msg in mensajes:
         try:
@@ -232,11 +217,11 @@ def guardar_adjuntos(mensajes, dry_run=False):
 
             progress.advance(tarea)
 
-    console.print("\n[blue]📊 === Resumen ===[/blue]")
+    utils.print_section("📊 Resumen")
     mostrar_resumen(contador_emails, contador_guardados, contador_pdf, contador_xml, archivos_repetidos)
 
     if dry_run:
-        console.print("[magenta][DRY-RUN] No se guardaron archivos.[/magenta]")
+        utils.print_warning("[DRY-RUN] No se guardaron archivos.")
 
     return contador_emails, contador_guardados, contador_pdf, contador_xml, archivos_repetidos
 
@@ -256,13 +241,13 @@ def main():
             fecha_fin = datetime.strptime(args.fecha_fin, FORMATO_FECHA_INPUT).replace(tzinfo=ZONA_HORARIA)
             fecha_fin = fecha_fin.replace(hour=23, minute=59, second=59)
         except ValueError:
-            console.print("[bold red]❌ Formato inválido de fechas.[/bold red]")
+            utils.print_error("Formato inválido de fechas.")
             return
     elif args.fecha_inicio or args.fecha_fin:
-        console.print("[bold red]❌ Debe especificar ambas fechas o ninguna para modo interactivo.[/bold red]")
+        utils.print_error("Debe especificar ambas fechas o ninguna para modo interactivo.")
         return
     else:
-        console.print("[cyan]📅 Ingrese el rango de fechas:[/cyan]")
+        utils.print_info("Ingrese el rango de fechas:")
         fecha_inicio = solicitar_fecha_interactiva("Fecha inicio (dd/mm/yyyy): ")
         fecha_fin = solicitar_fecha_interactiva("Fecha fin (dd/mm/yyyy): ")
         fecha_fin = fecha_fin.replace(hour=23, minute=59, second=59)
@@ -270,7 +255,7 @@ def main():
     try:
         validar_rango_fechas(fecha_inicio, fecha_fin)
     except ValueError as ve:
-        console.print(f"[bold red]❌ {ve}[/bold red]")
+        utils.print_error(str(ve))
         return
 
     configurar_logging(fecha_inicio)
@@ -280,7 +265,7 @@ def main():
     bandeja = outlook_ns.GetDefaultFolder(6)  # Bandeja de entrada
     mensajes = filtrar_correos_por_fecha(bandeja, fecha_inicio, fecha_fin)
     if not mensajes:
-        console.print("[yellow]⚠️ No se encontraron correos para procesar.[/yellow]")
+        utils.print_warning("No se encontraron correos para procesar.")
         return
 
     emails, guardados, pdf, xml, duplicados = guardar_adjuntos(mensajes, dry_run=args.dry_run)
@@ -290,7 +275,7 @@ def main():
     if duplicados:
         logging.info(f"🎯 Política aplicada a duplicados: {DECISION_DUPLICADOS}")
     logging.info("✅ Proceso finalizado con éxito.")
-    console.print("\n[bold green]🎉 Proceso finalizado con éxito.[/bold green]")
+    utils.print_success("Proceso finalizado con éxito.")
 
 
 if __name__ == "__main__":

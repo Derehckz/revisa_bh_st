@@ -1,18 +1,9 @@
 import os
 import pandas as pd
-from rich.console import Console
-from rich.panel import Panel
-from colorama import init
 import config
 import utils
 
-init(autoreset=True)
-console = Console()
-
 RAIZ = config.RAIZ
-
-def seleccionar_opcion(lista, mensaje, icono=""):
-    return utils.seleccionar_opcion(lista, mensaje, icono)
 
 def obtener_ins(location):
     if str(location) == "508":
@@ -73,23 +64,25 @@ def formatear_rut(rut):
     return rut_str
 
 def main():
-    console.print(Panel.fit("[bold cyan]📂 Selección de Excel y creación hoja resumen[/bold cyan]", style="bold green"))
+    utils.print_header("📂 Selección de Excel y creación hoja resumen", "Generando hoja resumen de boletas")
+    utils.print_step(1, 4, "Selección de período")
 
     try:
         año, mes = utils.seleccionar_año_mes(RAIZ)
     except ValueError as e:
-        console.print(Panel.fit(f"[red]⚠️ {e}[/red]", style="bold red"))
+        utils.print_error(str(e))
         return
     ruta_mes = os.path.join(RAIZ, año, mes)
 
     ruta_excel = os.path.join(ruta_mes, "Solicitud.xlsx")
     if not os.path.isfile(ruta_excel):
-        console.print(Panel.fit(f"[red]⚠️ No se encontró archivo Excel en {ruta_excel}[/red]", style="bold red"))
+        utils.print_error(f"No se encontró archivo Excel en {ruta_excel}")
         return
 
+    utils.print_step(2, 4, "Lectura y filtrado de datos")
     df = pd.read_excel(ruta_excel, sheet_name=None, engine='openpyxl')
     hojas = list(df.keys())
-    hoja = seleccionar_opcion(hojas, "Seleccione la hoja del Excel a procesar:", "📄")
+    hoja = utils.seleccionar_opcion(hojas, "Seleccione la hoja del Excel a procesar:", "📄")
     df_hoja = df[hoja]
 
     df_filtrado = df_hoja[df_hoja['Observaciones_XML'].str.strip().str.upper() == "DATOS EXTRAÍDOS OK"].copy()
@@ -125,6 +118,7 @@ def main():
     ]
     df_resumen = df_resumen[columnas_final]
 
+    utils.print_step(3, 4, "Guardando hoja resumen")
     try:
         # Backup previo del Excel antes de sobrescribir
         try:
@@ -133,9 +127,13 @@ def main():
             pass
         with pd.ExcelWriter(ruta_excel, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
             df_resumen.to_excel(writer, index=False, sheet_name="Resumen Boletas")
-        console.print(Panel.fit(f"[green]✔️ Hoja 'Resumen Boletas' sobrescrita correctamente en {ruta_excel}[/green]", style="bold green"))
+        utils.print_success(f"Hoja 'Resumen Boletas' sobrescrita correctamente en {ruta_excel}")
     except (OSError, IOError, PermissionError) as e:
-        console.print(Panel.fit(f"[red]⚠️ Error guardando Excel: {e}[/red]", style="bold red"))
+        utils.print_error(f"Error guardando Excel: {e}")
+        return
+
+    utils.print_step(4, 4, "Proceso completado")
+    utils.print_success("Informe final de boletas generado correctamente.")
 
 if __name__ == "__main__":
     main()

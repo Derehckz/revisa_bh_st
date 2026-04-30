@@ -5,15 +5,12 @@ import xml.etree.ElementTree as ET
 from openpyxl import load_workbook
 import logging
 from datetime import datetime
-from rich.console import Console
-from rich.logging import RichHandler
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 from rich.panel import Panel
-from colorama import init
 import utils
+import schema_validator
 
-init(autoreset=True)
-console = Console()
+console = utils.console
 
 import config
 RAIZ = config.RAIZ
@@ -67,12 +64,12 @@ def seleccionar_opcion(lista, mensaje, icono=""):
     return utils.seleccionar_opcion(lista, mensaje, icono)
 
 def main():
-    console.print(Panel.fit("[bold cyan]📂 Extracción de datos XML al Excel[/bold cyan]", style="bold green"))
+    utils.print_header("📂 EXTRACCIÓN DE DATOS XML AL EXCEL")
 
     try:
         año, mes = utils.seleccionar_año_mes(RAIZ)
     except ValueError as e:
-        console.print(Panel.fit(f"[red]⚠️ {e}[/red]", style="bold red"))
+        utils.print_error(str(e))
         return
     ruta_mes = os.path.join(RAIZ, año, mes)
 
@@ -83,7 +80,7 @@ def main():
     
     ruta_excel = os.path.join(ruta_mes, "Solicitud.xlsx")
     if not os.path.isfile(ruta_excel):
-        console.print(Panel.fit(f"[red]⚠️ No se encontró archivo Excel en {ruta_excel}[/red]", style="bold red"))
+        utils.print_error(f"No se encontró archivo Excel en {ruta_excel}")
         return
 
     wb = load_workbook(ruta_excel, read_only=True)
@@ -91,6 +88,17 @@ def main():
     wb.close()
     hoja = seleccionar_opcion(hojas, "Seleccione la hoja del Excel para agregar datos:", "📄")
     df = pd.read_excel(ruta_excel, sheet_name=hoja, engine='openpyxl')
+
+    schema_issues = []
+    schema_issues.extend(
+        schema_validator.validate_required_columns(
+            df.columns,
+            ["archivo_xml", "CUS_TOT_HON", "RUT RAZON"],
+        )
+    )
+    for warning_line in schema_validator.format_issues(schema_issues, "script4"):
+        logging.warning(warning_line)
+        utils.print_warning(warning_line)
 
     crear_columnas_si_no_existen(df)
 
@@ -101,8 +109,8 @@ def main():
     hay_datos_ok = df['Observaciones_XML'].astype(str).str.strip().str.lower().eq('datos extraídos ok').any()
     sobrescribir_ok = False
     if hay_datos_ok:
-        console.print(Panel.fit("[yellow]¿Desea sobrescribir filas que ya tienen 'Datos extraídos OK'?[/yellow]", style="bold yellow"))
-        respuesta = console.input("[green]👉 Ingrese S para sí, N para no:[/] ").strip().lower()
+        utils.print_warning("¿Desea sobrescribir filas que ya tienen 'Datos extraídos OK'?")
+        respuesta = utils.prompt_required("Ingrese S para sí, N para no").strip().lower()
         sobrescribir_ok = respuesta == 's'
         if sobrescribir_ok:
             limpiar_columnas_objetivo(df)
@@ -112,7 +120,7 @@ def main():
     exitos = 0
     errores = 0
 
-    console.print(Panel.fit(f"🔎 Iniciando extracción de datos XML para {total} filas...", style="bold magenta"))
+    utils.print_progress_status(f"Iniciando extracción de datos XML para {total} filas...")
 
     with Progress(
         "[progress.description]{task.description}",
@@ -201,7 +209,7 @@ def main():
         with pd.ExcelWriter(ruta_excel, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
             df.to_excel(writer, sheet_name=hoja, index=False)
     except PermissionError:
-        console.print(Panel.fit(f"[red]⚠️ Error: El archivo {ruta_excel} está abierto o bloqueado. Ciérralo y vuelve a intentar.[/red]", style="bold red"))
+        utils.print_error(f"El archivo {ruta_excel} está abierto o bloqueado. Ciérralo y vuelve a intentar.")
         return
 
     resumen = (
