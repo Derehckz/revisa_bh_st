@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: boletas_app
+          POSTGRES_PASSWORD: boletas123
+          POSTGRES_DB: boletas_honorarios
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U boletas_app -d boletas_honorarios"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      BH_DB_HOST: localhost
+      BH_DB_PORT: "5432"
+      BH_DB_NAME: boletas_honorarios
+      BH_DB_USER: boletas_app
+      BH_DB_PASSWORD: boletas123
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install quality dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install sqlalchemy psycopg[binary] alembic fastapi uvicorn
+
+      - name: Compile Python modules
+        run: python -m compileall api db lib etapas herramientas main.py
+
+      - name: Apply DB migrations
+        run: python -m alembic upgrade head
+
+      - name: Validate migration drift
+        run: python -m alembic check
+
+  api-tests:
+    runs-on: ubuntu-latest
+    needs: quality-gates
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: boletas_app
+          POSTGRES_PASSWORD: boletas123
+          POSTGRES_DB: boletas_honorarios
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U boletas_app -d boletas_honorarios"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      BH_DB_HOST: localhost
+      BH_DB_PORT: "5432"
+      BH_DB_NAME: boletas_honorarios
+      BH_DB_USER: boletas_app
+      BH_DB_PASSWORD: boletas123
+      BH_API_KEY: test-key
+      BH_API_RATE_LIMIT_ENABLED: "0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install API test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install sqlalchemy psycopg[binary] alembic fastapi uvicorn pytest httpx
+
+      - name: Run DB migrations
+        run: python -m alembic upgrade head
+
+      - name: Run API tests
+        run: python -m pytest -q tests/api/test_api_endpoints.py

@@ -14,6 +14,13 @@ tqdm==4.67.0
 # Windows: Outlook (envío/extracción de correos); 311 incluye rueda cp314
 pywin32==311
 
+# Base de datos y migraciones
+sqlalchemy==2.0.49
+psycopg[binary]==3.3.3
+alembic==1.18.4
+fastapi==0.115.12
+uvicorn==0.34.0
+
 # Opcionales para script 9 (revisión carpetas IP/CFT con OCR):
 # PyMuPDF>=1.21.0
 # pdf2image>=1.16.0
@@ -22,3 +29,4 @@ pywin32==311
 
 # Desarrollo y tests (opcional)
 pytest==8.3.3
+httpx==0.28.1

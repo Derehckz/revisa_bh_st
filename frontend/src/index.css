@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 220 23% 97%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --muted: 220 20% 95%;
+  --muted-foreground: 217 16% 42%;
+  --border: 220 18% 88%;
+  --ring: 173 100% 25%;
+  --primary: 173 100% 25%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 172 100% 31%;
+  --accent: 10 87% 62%;
+  --success: 81 51% 48%;
+  --warning: 50 100% 50%;
+  --danger: 0 84% 60%;
+  --radius-lg: 0.8rem;
+  --radius-md: 0.6rem;
+  --radius-sm: 0.4rem;
+}
+
+.dark {
+  --background: 222 47% 8%;
+  --foreground: 210 40% 98%;
+  --card: 222 40% 11%;
+  --muted: 217 33% 18%;
+  --muted-foreground: 215 20% 65%;
+  --border: 217 33% 22%;
+  --ring: 172 100% 31%;
+  --primary: 172 100% 31%;
+  --secondary: 172 100% 25%;
+  --accent: 10 87% 62%;
+  --success: 81 51% 48%;
+  --warning: 50 100% 50%;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  margin: 0;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.skip-link {
+  position: absolute;
+  left: -999px;
+  top: 8px;
+  z-index: 1000;
+  border-radius: 8px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.skip-link:focus {
+  left: 8px;
+}
