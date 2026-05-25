@@ -23,6 +23,23 @@ _parse_recordatorio_count = reminder_policy.parse_recordatorio_count
 MAX_RECORDATORIOS_POR_PERIODO = reminder_policy.MAX_RECORDATORIOS_POR_PERIODO
 
 
+def _build_mail_item_key(
+    año: int,
+    mes: str,
+    rut_docente,
+    rut_razon,
+    email: str,
+    *,
+    recordatorio_num: int | None = None,
+) -> str:
+    """Clave idempotente por solicitud de boleta (incluye RUT RAZON: IP vs CFT)."""
+    rr = utils.normalizar_rut_con_dv(rut_razon)
+    base = f"{año}|{mes}|{rut_docente}|{rr}|{email}".lower()
+    if recordatorio_num is not None:
+        return f"{base}|r{recordatorio_num}"
+    return base
+
+
 def mostrar_previsualizacion(tipo_envio, cantidad_correos, mes, ano, df=None, indices=None):
     """
     Muestra una previsualización de las configuraciones y fecha que se usarán
@@ -56,12 +73,15 @@ def mostrar_previsualizacion(tipo_envio, cantidad_correos, mes, ano, df=None, in
         tabla_dest.add_column("Docente", style="blue")
         tabla_dest.add_column("Correo", style="green")
         tabla_dest.add_column("RUT Razon", style="cyan")
+        tabla_dest.add_column("Monto a solicitar", style="magenta", justify="right")
         
         for i, idx in enumerate(indices[:5]):
+            monto_raw = df.at[idx, "CUS_TOT_HON"] if "CUS_TOT_HON" in df.columns else None
             tabla_dest.add_row(
                 df.at[idx, "NAME"],
                 df.at[idx, "Email_Docente"],
-                str(df.at[idx, "RUT RAZON"])
+                str(df.at[idx, "RUT RAZON"]),
+                templates._format_monto(monto_raw),
             )
         
         utils.console.print(tabla_dest)
@@ -130,15 +150,23 @@ def enviar_correos(
                     recordatorio_num = _parse_recordatorio_count(
                         df.at[idx, "Recordatorios Enviados"]
                     ) + 1
-                    item_key = f"{año}|{mes}|{rut_docente}|{email}|r{recordatorio_num}".lower()
+                    item_key = _build_mail_item_key(
+                        año, mes, rut_docente, rut_razon, email,
+                        recordatorio_num=recordatorio_num,
+                    )
                 else:
-                    item_key = f"{año}|{mes}|{rut_docente}|{email}".lower()
+                    item_key = _build_mail_item_key(
+                        año, mes, rut_docente, rut_razon, email,
+                    )
 
                 # Idempotencia: evitar reenvíos accidentales salvo override.
                 if not force_resend and idempotency_store.was_success(stage_id, item_key):
                     df.at[idx, columna_envio] = f"⏭ Omitido por idempotencia ({tipo})"
                     logging.info(f"Omitido por idempotencia ({tipo}): {item_key}")
-                    utils.print_warning(f"Omitido (ya enviado, usar --force-resend para reenviar): {email}")
+                    utils.print_warning(
+                        f"Omitido (ya enviado, usar --force-resend para reenviar): {email} "
+                        f"(RUT razón {rut_razon})"
+                    )
                     continue
 
                 # Registro de observabilidad (no bloqueante)
@@ -464,14 +492,22 @@ def main(args):
     else:
         utils.print_warning("No hay destinatarios para recordatorio.")
 
-    if bh_excel_workbook.replace_sheet_atomically(ruta_archivo_excel, hoja_seleccionada, df):
+    guardado_ok = bh_excel_workbook.replace_sheet_atomically(
+        ruta_archivo_excel, hoja_seleccionada, df
+    )
+    if guardado_ok:
         utils.print_success(f"Archivo guardado correctamente en: {ruta_archivo_excel}")
         logging.info(f"Archivo guardado correctamente en {ruta_archivo_excel}")
     else:
-        utils.print_error("Error al guardar archivo Excel (reemplazo atómico de hoja).")
         logging.error("Error al guardar archivo Excel (reemplazo atómico de hoja).")
 
-    utils.print_header("🎯 PROCESO FINALIZADO EXITOSAMENTE", "Correos enviados correctamente")
+    if guardado_ok:
+        utils.print_header("🎯 PROCESO FINALIZADO EXITOSAMENTE", "Correos enviados correctamente")
+    else:
+        utils.print_header(
+            "⚠️ ENVÍOS OK — EXCEL NO GUARDADO",
+            "Revise backups en la carpeta del mes (*.zip) o reejecute tras cerrar bloqueos",
+        )
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Envío de correos de boletas de honorarios")
     parser.add_argument('--year', type=str, help='Año específico')
