@@ -67,7 +67,9 @@ def run_script(stage, year=None, month=None, run_db_id=None, non_interactive=Fal
         if os.path.isabs(script_name)
         else os.path.join(_REPO_ROOT, script_name)
     )
-    cmd = [sys.executable, script_path] + build_script_args(stage, year, month)
+    cmd = [sys.executable, "-X", "utf8", script_path] + build_script_args(stage, year, month)
+    if non_interactive:
+        cmd.append("--yes")
 
     utils.print_info(f"Ejecutando paso {step_num}: {description}")
     utils.print_info(f"Comando: {' '.join(cmd)}")

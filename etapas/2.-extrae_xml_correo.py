@@ -95,6 +95,14 @@ def decidir_guardado_archivos_repetidos(archivos_repetidos):
         DECISION_DUPLICADOS = None
         return
 
+    if utils.is_non_interactive():
+        politica = os.environ.get("BH_DUPLICADOS", "S").strip().upper()
+        if politica not in ("S", "A", "I"):
+            politica = "S"
+        DECISION_DUPLICADOS = politica
+        utils.print_info(f"Modo no interactivo: duplicados → política {DECISION_DUPLICADOS}")
+        return
+
     panel = Panel.fit(f"⚠️ Se detectaron {len(archivos_repetidos)} archivos duplicados.", title="Archivos duplicados", border_style="yellow")
     utils.console.print(panel)
     utils.print_warning("Archivos duplicados detectados.")
