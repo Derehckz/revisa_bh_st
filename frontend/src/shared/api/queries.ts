@@ -13,6 +13,7 @@ import type {
   PeriodSummary,
   RunStagesResponse,
   RunsResponse,
+  StagesListResponse,
   Step0OptionsResponse,
   YearStatsResponse,
 } from "@/shared/api/types";
@@ -173,12 +174,35 @@ export function useDocenteMetrics(
   });
 }
 
-export function useStep0Options(baseUrl: string, apiKey: string, year?: number, month?: string) {
+export function usePipelineStages(baseUrl: string, apiKey: string) {
   return useQuery({
-    queryKey: ["step0-options", baseUrl, year, month],
-    enabled: Boolean(year && month),
-    queryFn: () => apiGet<Step0OptionsResponse>(baseUrl, apiKey, `/operations/step0/options?year=${year}&month=${month}`),
+    queryKey: ["pipeline-stages", baseUrl],
+    queryFn: () => apiGet<StagesListResponse>(baseUrl, apiKey, "/operations/stages"),
   });
+}
+
+export function useStageOptions(
+  baseUrl: string,
+  apiKey: string,
+  stageNum: number,
+  year?: number,
+  month?: string
+) {
+  return useQuery({
+    queryKey: ["stage-options", baseUrl, stageNum, year, month],
+    enabled: Boolean(year && month),
+    queryFn: () =>
+      apiGet<Step0OptionsResponse>(
+        baseUrl,
+        apiKey,
+        `/operations/stages/${stageNum}/options?year=${year}&month=${encodeURIComponent(month || "")}`
+      ),
+  });
+}
+
+/** @deprecated Use useStageOptions(baseUrl, apiKey, 0, year, month) */
+export function useStep0Options(baseUrl: string, apiKey: string, year?: number, month?: string) {
+  return useStageOptions(baseUrl, apiKey, 0, year, month);
 }
 
 export function useOperationJobs(baseUrl: string, apiKey: string, limit = 20) {

@@ -251,3 +251,32 @@ class DocenteProfileResponse(BaseModel):
 class DocenteMetricsResponse(BaseModel):
     docente: DocenteItem
     metrics: dict
+
+
+class StageStartRequest(BaseModel):
+    year: int
+    month: str
+    # Paso 0
+    maestro_file: str | None = None
+    bd_file: str | None = None
+    output_file: str | None = None
+    csv_nuevos_docentes: str | None = None
+    # Común / varios pasos
+    strict: bool | None = None
+    send: bool | None = None
+    force_resend: bool | None = None
+    dry_run: bool | None = None
+    # Paso 2
+    fecha_inicio: str | None = None
+    fecha_fin: str | None = None
+    # Paso 7
+    fecha_pago: str | None = None
+    # Paso 8
+    mover: bool | None = None
+    map_csv: str | None = None
+    no_interactive: bool | None = None
+    # Paso 9
+    agrupar_archivos: bool | None = None
+    # Paso 10
+    institucion: str | None = None
+    force: bool | None = None

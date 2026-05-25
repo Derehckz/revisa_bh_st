@@ -43,14 +43,22 @@ export async function apiGet<T>(baseUrl: string, apiKey: string, path: string): 
   return payload as T;
 }
 
-export async function apiPost<T>(baseUrl: string, apiKey: string, path: string): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "x-request-id": requestId(),
-    },
-  });
+export async function apiPost<T>(
+  baseUrl: string,
+  apiKey: string,
+  path: string,
+  body?: unknown
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "x-api-key": apiKey,
+    "x-request-id": requestId(),
+  };
+  const init: RequestInit = { method: "POST", headers };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+  const response = await fetch(`${baseUrl}${path}`, init);
   let payload: unknown = null;
   try {
     payload = await response.json();

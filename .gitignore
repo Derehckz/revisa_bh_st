@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -30,6 +30,9 @@ venv/
 env/
 .env/
 .env
+
+# Node
+node_modules/
 
 # IDE / editor
 .idea/

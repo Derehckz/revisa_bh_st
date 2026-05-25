@@ -226,6 +226,33 @@ Response:
   - `docente`
   - `metrics` (`total_boletas`, `recibidas`, `con_error`, `sin_xml`, `monto_total`, `monto_promedio`)
 
+### Pipeline operations (jobs)
+
+Ejecución de etapas del pipeline vía subprocess (equivalente a consola con `--yes` y `BH_NON_INTERACTIVE=1`). Los jobs se persisten en `<BH_RAIZ>/.state/ops-jobs/{job_id}.json`.
+
+- `GET /operations/stages` — lista metadatos de pasos 0–10 (`enabled_for_api` indica si se puede arrancar desde la API).
+- `GET /operations/stages/{stage_num}/options?year=&month=` — opciones dinámicas y `prerequisites` para la etapa.
+- `POST /operations/stages/{stage_num}/start` — body JSON (`StageStartRequest`: `year`, `month`, y campos según etapa). Responde `501` si la etapa aún no está habilitada.
+- `GET /operations/jobs?limit=&stage_num=` — historial de jobs.
+- `GET /operations/jobs/{job_id}` — detalle (incluye `stage_num`, `cmd`, `params`).
+- `GET /operations/jobs/{job_id}/logs?max_chars=` — tail del log.
+- `GET /operations/jobs/{job_id}/log-file` — descarga del `.log`.
+- `GET /operations/jobs/{job_id}/output` — artefacto principal (hoy paso 0: `Solicitud.xlsx`).
+
+Compatibilidad legacy (paso 0):
+
+- `GET /operations/step0/options` — alias de `GET /operations/stages/0/options`.
+- `POST /operations/step0/start?year=&month=&maestro_file=&bd_file=&output_file=` — query params, mismo job runner.
+
+**Fase B:** `stage_num` 0–10 con `enabled_for_api: true`. Body según etapa (`send`, `fecha_inicio`/`fecha_fin`, `strict`, `dry_run`, etc.). Pasos 1, 5 y 7 requieren confirmación en UI para `send=true`; paso 7 exige `fecha_pago` si `send=true`.
+
+```bash
+curl -X POST "http://127.0.0.1:8000/operations/stages/0/start" \
+  -H "x-api-key: <tu_key>" \
+  -H "Content-Type: application/json" \
+  -d '{"year":2026,"month":"Mayo","maestro_file":"MAESTRO.xlsx","bd_file":"BD-DOCENTES.xlsx"}'
+```
+
 ## Curl examples
 
 ```bash

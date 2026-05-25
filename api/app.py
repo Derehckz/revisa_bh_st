@@ -15,7 +15,7 @@ import uuid
 import json
 from datetime import datetime, UTC
 
-from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
@@ -347,13 +347,48 @@ def docente_metrics(
         return services.get_docente_metrics(session, docente_id, year, month)
 
 
+@app.get("/operations/stages")
+def operations_stages_list(_: None = Depends(security.require_api_key)) -> dict:
+    return operations.list_stages()
+
+
+@app.get("/operations/stages/{stage_num}/options")
+def operations_stage_options(
+    stage_num: int = Path(..., ge=0, le=10),
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    try:
+        return operations.list_stage_options(stage_num, year, month)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/operations/stages/{stage_num}/start")
+def operations_stage_start(
+    stage_num: int = Path(..., ge=0, le=10),
+    body: schemas.StageStartRequest = Body(...),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    payload = body.model_dump(exclude_none=True)
+    try:
+        return operations.start_stage_job(stage_num, payload)
+    except operations.StageNotEnabledError as exc:
+        raise HTTPException(status_code=501, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 @app.get("/operations/step0/options")
 def step0_options(
     year: int = Query(..., ge=2000, le=2100),
     month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
     _: None = Depends(security.require_api_key),
 ) -> dict:
-    return operations.list_step0_options(year, month)
+    return operations.list_stage_options(0, year, month)
 
 
 @app.post("/operations/step0/start")
@@ -375,14 +410,17 @@ def step0_start(
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except operations.StageNotEnabledError as exc:
+        raise HTTPException(status_code=501, detail=str(exc))
 
 
 @app.get("/operations/jobs")
 def operations_jobs(
     limit: int = Query(default=20, ge=1, le=100),
+    stage_num: int | None = Query(default=None, ge=0, le=10),
     _: None = Depends(security.require_api_key),
 ) -> dict:
-    return {"data": operations.list_jobs(limit=limit)}
+    return {"data": operations.list_jobs(limit=limit, stage_num=stage_num)}
 
 
 @app.get("/operations/jobs/{job_id}")
@@ -419,7 +457,12 @@ def operations_job_log_file(
     log_path = job.get("log_path")
     if not log_path or not os.path.isfile(log_path):
         raise HTTPException(status_code=404, detail="Log no disponible")
-    return FileResponse(path=log_path, filename=f"step0_{job_id}.log", media_type="text/plain")
+    stage = job.get("stage_num", 0)
+    return FileResponse(
+        path=log_path,
+        filename=f"stage{stage}_{job_id}.log",
+        media_type="text/plain",
+    )
 
 
 @app.get("/operations/jobs/{job_id}/output")
@@ -430,7 +473,7 @@ def operations_job_output_file(
     job = operations.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} no encontrado")
-    output_path = operations.get_step0_output_path(job_id)
+    output_path = operations.get_job_primary_output_path(job_id)
     if not output_path:
         raise HTTPException(status_code=404, detail="Archivo de salida no disponible")
     return FileResponse(path=output_path, filename=os.path.basename(output_path), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

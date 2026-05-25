@@ -22,6 +22,7 @@ import idempotency_store
 from period_lock import PeriodLock, PeriodLockError, break_stale
 from db import pipeline_repository
 from pipeline_stages import MAX_STEP, MIN_STEP, SCRIPTS
+import stage_commands
 
 console = utils.console
 
@@ -34,54 +35,11 @@ def get_stage(step_num):
 
 
 def build_script_args(stage, year, month):
-    """Construye la lista de argumentos CLI según el contrato de cada script."""
-    extra = []
-    if stage["accepts"] == "year_month":
-        if year:
-            extra.extend(["--year", year])
-        if month:
-            extra.extend(["--month", month])
-    elif stage["accepts"] == "mes_ano":
-        if month:
-            extra.extend(["--mes", month])
-        if year:
-            extra.extend(["--año", str(year)])
-    # "none": no se pasa nada; el script preguntará interactivo.
-    return extra
+    return stage_commands.build_period_args(stage, year, month)
 
 
 def check_prerequisites(stage_num, year=None, month=None):
-    """Verifica pre-requisitos antes de ejecutar una etapa."""
-    base_path = os.path.join(config.RAIZ, year, month) if year and month else None
-
-    if stage_num == 0:
-        # Script 0 valida sus propias rutas (maestro y BD-DOCENTES) internamente.
-        return
-
-    if stage_num == 1:
-        if not os.path.isfile(config.ARCHIVO_ADJUNTO):
-            raise ValueError(f"Archivo adjunto no encontrado: {config.ARCHIVO_ADJUNTO}")
-        return
-
-    if stage_num == 2:
-        # Requiere Outlook; sin verificación previa de filesystem.
-        return
-
-    if stage_num == 3:
-        if base_path and not any(
-            f.endswith('.xlsx')
-            for f in os.listdir(base_path)
-            if os.path.isfile(os.path.join(base_path, f))
-        ):
-            raise ValueError(f"No se encontró archivo Excel en {base_path}")
-        return
-
-    if stage_num in (4, 5, 6, 7, 8, 9, 10):
-        if base_path:
-            excel_path = os.path.join(base_path, "Solicitud.xlsx")
-            if not os.path.isfile(excel_path):
-                raise ValueError(f"Archivo Solicitud.xlsx no encontrado en {base_path}")
-        return
+    stage_commands.check_prerequisites(stage_num, year, month)
 
 
 def run_script(stage, year=None, month=None, run_db_id=None, non_interactive=False):

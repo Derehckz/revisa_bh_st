@@ -217,23 +217,55 @@ export type DocenteMetricsResponse = {
   };
 };
 
+export type PipelineStageMeta = {
+  stage_num: number;
+  file: string;
+  description: string;
+  accepts: "none" | "year_month" | "mes_ano";
+  optional_in_full_run: boolean;
+  enabled_for_api: boolean;
+  is_email_stage?: boolean;
+};
+
+export type StageParamField = {
+  name: string;
+  type: string;
+  label: string;
+  cli?: string | null;
+  required?: boolean;
+  default?: boolean | string | null;
+  help?: string;
+};
+
+export type StagesListResponse = {
+  stages: PipelineStageMeta[];
+};
+
 export type Step0OptionsResponse = {
   year: number;
   month: string;
   month_dir: string;
   maestro_files: string[];
   bd_candidates: string[];
+  stage_num?: number;
+  prerequisites?: { ok: boolean; message: string };
+  enabled_for_api?: boolean;
+  params_schema?: StageParamField[];
+  is_email_stage?: boolean;
 };
 
 export type OperationJob = {
   id: string;
+  stage_num?: number;
   type: string;
   status: "running" | "success" | "failed";
   year: number;
   month: string;
-  maestro_file: string;
-  bd_file: string;
-  output_file: string;
+  maestro_file?: string;
+  bd_file?: string;
+  output_file?: string;
+  params?: Record<string, unknown>;
+  cmd?: string[];
   created_at: string;
   log_path: string;
   pid: number | null;
