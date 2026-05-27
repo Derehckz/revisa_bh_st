@@ -71,14 +71,15 @@ def main(
     """dispatch_outbox: índice Excel -> id outbox `pending` (reintento COM).
     dispatch_only_indices: si no es None, solo se procesan esas filas (modo worker)."""
     if args is None:
-        args = argparse.Namespace(force_resend=False, yes=False, year=None, month=None)
+        args = argparse.Namespace(force_resend=False, yes=False, send=False, year=None, month=None)
 
     utils.apply_non_interactive_from_args(args)
     utils.print_header("📧 ENVÍO DE CORREOS DE RECEPCIÓN", "Boletas de Honorarios")
 
-    # Modo de prueba
+    # Modo de prueba / control explícito de envío real.
+    # En modo no interactivo solo se envía si viene --send.
     if utils.is_non_interactive():
-        modo_prueba = False
+        modo_prueba = not bool(getattr(args, "send", False))
     else:
         modo_prueba = utils.prompt_yes_no_s(
             "¿Modo de prueba? (s/n) - No envía correos ni modifica Excel", default="n"
@@ -181,8 +182,6 @@ def main(
         rut = format_entero(fila.get('rutReceptorCompleto_XML', 'N/A'))
         rut_emisor = format_entero(fila.get('rutEmisorCompleto_XML', 'N/A'))
         monto = fila.get('totalHonorarios_XML', 'N/A')
-        if pd.notna(monto):
-            monto = f"${float(monto):,.0f}"
 
         if not utils.validar_email(correo):
             df.at[idx, 'Correo_Recepcion_Enviado'] = "❌ Correo inválido"
@@ -296,7 +295,7 @@ if __name__ == "__main__":
         action='store_true',
         help='Ignora idempotencia y reenvía aunque el correo ya esté marcado como exitoso.',
     )
-    utils.register_non_interactive_cli(parser)
+    utils.register_non_interactive_cli(parser, with_send=True)
     utils.register_period_args(parser)
     args = parser.parse_args()
     main(args)

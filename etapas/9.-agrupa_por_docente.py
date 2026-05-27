@@ -192,16 +192,12 @@ def main(args=None):
         utils.print_error(f"Error leyendo Excel: {e}")
         return
 
-    hoja_resumen = schema_validator.find_sheet(hojas, "Resumen Boletas")
-    if hoja_resumen is not None:
-        hoja = hoja_resumen
-        utils.print_info(f"Usando hoja '{hoja}' (aprobadas para pago)")
-    else:
-        hoja = (
-            utils.pick_excel_sheet(hojas, "Resumen Boletas")
-            if utils.is_non_interactive()
-            else utils.seleccionar_opcion(hojas, "Seleccione la hoja del Excel:", "📄")
-        )
+    hoja = utils.choose_excel_sheet(
+        hojas,
+        sheet=getattr(args, "sheet", None),
+        canonical="Resumen Boletas",
+        prompt_message="Seleccione la hoja del Excel:",
+    )
 
     try:
         df = pd.read_excel(ruta_excel, sheet_name=hoja, engine='openpyxl')
@@ -297,6 +293,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Agrupa por docente (carpetas IP/CFT)")
     utils.register_non_interactive_cli(parser)
     utils.register_period_args(parser)
+    parser.add_argument(
+        "--sheet",
+        type=str,
+        default=None,
+        help="Hoja del Excel (por defecto Resumen Boletas si existe).",
+    )
     parser.add_argument(
         "--agrupar-archivos",
         action="store_true",

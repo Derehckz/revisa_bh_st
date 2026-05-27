@@ -13,6 +13,7 @@ for _p in (_LIB, _REPO):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import config
 import stage_commands
 
 
@@ -32,8 +33,8 @@ def _run_step(stage_num: int, year: str, month: str, extra: dict) -> int:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Cierre operativo de un período (etapas 2–10)")
-    p.add_argument("--year", required=True)
-    p.add_argument("--month", required=True)
+    p.add_argument("--year", required=True, help="Ej. 2026 (referencia cerrada: Abril)")
+    p.add_argument("--month", required=True, help="Ej. Abril (mes cerrado; evitar mes en curso)")
     p.add_argument("--fecha-inicio", required=True, help="dd/mm/aaaa para paso 2")
     p.add_argument("--fecha-fin", required=True, help="dd/mm/aaaa para paso 2")
     p.add_argument("--start-from", type=int, default=2)
@@ -42,6 +43,11 @@ def main() -> int:
     p.add_argument("--send-email", action="store_true", help="Paso 5/7 con --send (correos reales)")
     p.add_argument("--fecha-pago", default=None, help="Obligatorio si --send-email y llega al paso 7")
     p.add_argument("--step8-dry-run", action="store_true", help="Paso 8 solo simulación")
+    p.add_argument(
+        "--step8-map",
+        default=None,
+        help="CSV map_ip_cft (RUT,Categoria). Si no se indica y llega al paso 8, usa map_ip_cft.csv en carpeta del mes",
+    )
     args = p.parse_args()
 
     steps = list(range(args.start_from, args.end_at + 1))
@@ -52,15 +58,25 @@ def main() -> int:
         extra: dict = {}
         if n == 2:
             extra = {"fecha_inicio": args.fecha_inicio, "fecha_fin": args.fecha_fin}
-        elif n in (5, 7) and args.send_email:
-            extra = {"send": True}
-            if n == 7:
-                if not args.fecha_pago:
-                    print("ERROR: --fecha-pago requerido con --send-email en paso 7", file=sys.stderr)
-                    return 2
-                extra["fecha_pago"] = args.fecha_pago
-        elif n == 8 and args.step8_dry_run:
-            extra = {"dry_run": True}
+        elif n == 5 and args.send_email:
+            # Paso 5: con --yes envía real (no tiene flag --send).
+            extra = {}
+        elif n == 7 and args.send_email:
+            if not args.fecha_pago:
+                print("ERROR: --fecha-pago requerido con --send-email en paso 7", file=sys.stderr)
+                return 2
+            extra = {"send": True, "fecha_pago": args.fecha_pago}
+        elif n == 8:
+            map_path = args.step8_map or os.path.join(
+                config.RAIZ, str(args.year), args.month, "map_ip_cft.csv"
+            )
+            extra = {"no_interactive": True, "mover": True}
+            if args.step8_dry_run:
+                extra["dry_run"] = True
+            if os.path.isfile(map_path):
+                extra["map_csv"] = map_path
+            else:
+                print(f"AVISO: no hay mapa {map_path}; paso 8 usará clasificación por Excel", flush=True)
         elif n == 9:
             extra = {"agrupar_archivos": True}
 

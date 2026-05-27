@@ -352,6 +352,15 @@ def operations_stages_list(_: None = Depends(security.require_api_key)) -> dict:
     return operations.list_stages()
 
 
+@app.get("/operations/period/overview")
+def operations_period_overview(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return operations.period_overview(year, month)
+
+
 @app.get("/operations/stages/{stage_num}/options")
 def operations_stage_options(
     stage_num: int = Path(..., ge=0, le=10),
@@ -414,13 +423,59 @@ def step0_start(
         raise HTTPException(status_code=501, detail=str(exc))
 
 
+@app.get("/operations/history")
+def operations_execution_history(
+    year: int = Query(default=2026, ge=2000, le=2100),
+    from_month: str = Query(default="Enero"),
+    to_month: str = Query(default="Mayo"),
+    limit: int = Query(default=500, ge=1, le=2000),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return operations.list_execution_history(
+        year=year,
+        from_month=from_month,
+        to_month=to_month,
+        limit=limit,
+    )
+
+
+@app.get("/operations/history/{entry_id}/logs")
+def operations_history_logs(
+    entry_id: str = Path(..., min_length=4, max_length=128),
+    year: int = Query(default=2026, ge=2000, le=2100),
+    from_month: str = Query(default="Enero"),
+    to_month: str = Query(default="Mayo"),
+    max_chars: int = Query(default=12000, ge=1000, le=50000),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return {
+        "entry_id": entry_id,
+        "logs": operations.read_history_logs(
+            entry_id,
+            year=year,
+            from_month=from_month,
+            to_month=to_month,
+            max_chars=max_chars,
+        ),
+    }
+
+
 @app.get("/operations/jobs")
 def operations_jobs(
     limit: int = Query(default=20, ge=1, le=100),
     stage_num: int | None = Query(default=None, ge=0, le=10),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    month: str | None = Query(default=None),
     _: None = Depends(security.require_api_key),
 ) -> dict:
-    return {"data": operations.list_jobs(limit=limit, stage_num=stage_num)}
+    return {
+        "data": operations.list_jobs(
+            limit=limit,
+            stage_num=stage_num,
+            year=year,
+            month=month,
+        )
+    }
 
 
 @app.get("/operations/jobs/{job_id}")
@@ -465,15 +520,80 @@ def operations_job_log_file(
     )
 
 
-@app.get("/operations/jobs/{job_id}/output")
-def operations_job_output_file(
+@app.get("/operations/jobs/{job_id}/artifacts")
+def operations_job_artifacts(
     job_id: str = Path(..., min_length=4, max_length=64),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    job = operations.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} no encontrado")
+    return {"job_id": job_id, "artifacts": operations.get_job_artifacts(job_id)}
+
+
+@app.get("/operations/jobs/{job_id}/artifacts/{artifact_id}")
+def operations_job_artifact_file(
+    job_id: str = Path(..., min_length=4, max_length=64),
+    artifact_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[a-z0-9_]+$"),
     _: None = Depends(security.require_api_key),
 ):
     job = operations.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} no encontrado")
-    output_path = operations.get_job_primary_output_path(job_id)
+    path = operations.get_job_artifact_path(job_id, artifact_id)
+    if not path:
+        raise HTTPException(status_code=404, detail="Artefacto no disponible")
+    media = "application/octet-stream"
+    if path.lower().endswith(".xlsx"):
+        media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif path.lower().endswith(".csv"):
+        media = "text/csv"
+    elif path.lower().endswith(".log"):
+        media = "text/plain"
+    return FileResponse(path=path, filename=os.path.basename(path), media_type=media)
+
+
+@app.get("/operations/jobs/{job_id}/output")
+def operations_job_output_file(
+    job_id: str = Path(..., min_length=4, max_length=64),
+    _: None = Depends(security.require_api_key),
+):
+    """Legacy: descarga artefacto primary."""
+    job = operations.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} no encontrado")
+    output_path = operations.get_job_artifact_path(job_id, "primary") or operations.get_job_primary_output_path(job_id)
     if not output_path:
         raise HTTPException(status_code=404, detail="Archivo de salida no disponible")
     return FileResponse(path=output_path, filename=os.path.basename(output_path), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.get("/operations/outbox/stats")
+def operations_outbox_stats(_: None = Depends(security.require_api_key)) -> dict:
+    return operations.outbox_stats()
+
+
+@app.get("/operations/outbox/rows")
+def operations_outbox_rows(
+    status: str | None = Query(default=None, max_length=32),
+    limit: int = Query(default=50, ge=1, le=200),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return {"data": operations.outbox_list_rows(status=status, limit=limit)}
+
+
+@app.post("/operations/outbox/dispatch-com")
+def operations_outbox_dispatch(
+    limit: int = Query(default=30, ge=1, le=200),
+    dry_run: bool = Query(default=False),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return operations.outbox_dispatch_com(limit=limit, dry_run=dry_run)
+
+
+@app.post("/operations/outbox/reopen-failed")
+def operations_outbox_reopen(
+    limit: int = Query(default=200, ge=1, le=500),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return operations.outbox_reopen_failed(limit=limit)

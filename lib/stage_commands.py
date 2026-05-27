@@ -13,6 +13,9 @@ API_ENABLED_STAGES: frozenset[int] = frozenset(range(0, MAX_STEP + 1))
 
 EMAIL_STAGES: frozenset[int] = frozenset({1, 5, 7})
 
+# Etapas que leen una hoja de Solicitud.xlsx (elegible en la UI).
+SHEET_SELECT_STAGES: frozenset[int] = frozenset({1, 3, 4, 6, 8, 9})
+
 
 def get_stage(stage_num: int) -> dict | None:
     for s in SCRIPTS:
@@ -99,8 +102,24 @@ def _param_field(
     }
 
 
+def _sheet_param_field(canonical_hint: str = "Solicitud") -> dict[str, Any]:
+    return _param_field(
+        "sheet",
+        type_="select_sheet",
+        cli="--sheet",
+        label="Hoja del Excel a usar",
+        required=False,
+        help_text=f"Normalmente «{canonical_hint}». Si no eliges, se detecta automáticamente.",
+    )
+
+
 def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
     """Esquema de parámetros para formularios de Operación."""
+    sheet_fields = (
+        [_sheet_param_field("Resumen Boletas" if stage_num == 9 else "Solicitud")]
+        if stage_num in SHEET_SELECT_STAGES
+        else []
+    )
     if stage_num == 0:
         return [
             _param_field("maestro_file", type_="select_maestro", label="Archivo maestro", required=True),
@@ -108,11 +127,11 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
             _param_field("output_file", type_="string", label="Nombre salida", default="Solicitud.xlsx"),
         ]
     if stage_num in (3, 4):
-        return [
+        return sheet_fields + [
             _param_field("strict", cli="--strict", label="Validación estricta del Excel"),
         ]
     if stage_num == 1:
-        return [
+        return sheet_fields + [
             _param_field(
                 "send",
                 cli="--send",
@@ -158,8 +177,10 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
             ),
             _param_field("dry_run", cli="--dry-run", label="Simular (no guardar archivos)"),
         ]
+    if stage_num == 6:
+        return sheet_fields
     if stage_num == 8:
-        return [
+        return sheet_fields + [
             _param_field("dry_run", cli="--dry-run", label="Simular (no copiar/mover)", default=True),
             _param_field("mover", cli="--mover", label="Mover en lugar de copiar"),
             _param_field(
@@ -172,7 +193,7 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
             _param_field("no_interactive", cli="--no-interactive", label="Sin prompts (usar con CSV)"),
         ]
     if stage_num == 9:
-        return [
+        return sheet_fields + [
             _param_field(
                 "agrupar_archivos",
                 cli="--agrupar-archivos",

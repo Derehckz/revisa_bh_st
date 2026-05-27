@@ -84,6 +84,45 @@ def pick_excel_sheet(hojas: list[str], canonical: str = "Solicitud") -> str:
     return found or (hojas[0] if hojas else "")
 
 
+def seleccionar_opcion(lista: list[Any], mensaje: str, icono: str = "") -> Any:
+    """Menú numerado en consola (delegado a terminal_ui)."""
+    return terminal_ui.seleccionar_opcion(lista, mensaje, icono)
+
+
+def choose_excel_sheet(
+    hojas: list[str],
+    *,
+    sheet: str | None = None,
+    canonical: str = "Solicitud",
+    prompt_message: str = "Seleccione la hoja del Excel:",
+    icon: str = "📄",
+) -> str:
+    """Elige hoja: --sheet explícito > canónica > batch/primer prompt."""
+    import schema_validator
+
+    if not hojas:
+        raise ValueError("El archivo Excel no tiene hojas.")
+
+    wanted = (sheet or "").strip()
+    if wanted:
+        if wanted not in hojas:
+            raise ValueError(
+                f"Hoja '{wanted}' no existe. Hojas disponibles: {', '.join(hojas)}"
+            )
+        print_info(f"Usando hoja indicada: '{wanted}'")
+        return wanted
+
+    found = schema_validator.find_sheet(hojas, canonical)
+    if found and found in hojas:
+        print_info(f"Usando hoja canónica detectada: '{found}'")
+        return found
+
+    if is_non_interactive():
+        return pick_excel_sheet(hojas, canonical)
+
+    return seleccionar_opcion(hojas, prompt_message, icon)
+
+
 _RUN_ID: str = os.getenv("BH_RUN_ID", uuid.uuid4().hex[:12])
 _CORRELATION_ID: contextvars.ContextVar[str] = contextvars.ContextVar("correlation_id", default=_RUN_ID)
 

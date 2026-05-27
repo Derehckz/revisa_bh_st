@@ -104,16 +104,11 @@ def main(args=None):
     utils.print_step(2, 4, "Lectura y filtrado de datos")
     df = pd.read_excel(ruta_excel, sheet_name=None, engine='openpyxl')
     hojas = list(df.keys())
-    hoja_canonica = schema_validator.find_sheet(hojas, "Solicitud")
-    if hoja_canonica and hoja_canonica in hojas:
-        hoja = hoja_canonica
-        utils.print_info(f"Usando hoja canónica detectada: '{hoja}'")
-    else:
-        hoja = (
-            utils.pick_excel_sheet(hojas)
-            if utils.is_non_interactive()
-            else utils.seleccionar_opcion(hojas, "Seleccione la hoja del Excel a procesar:", "📄")
-        )
+    hoja = utils.choose_excel_sheet(
+        hojas,
+        sheet=getattr(args, "sheet", None),
+        prompt_message="Seleccione la hoja del Excel a procesar:",
+    )
     df_hoja = df[hoja]
 
     canonical_errors, canonical_warnings = schema_validator.validate_for_stage(
@@ -190,6 +185,12 @@ def main(args=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Informe final de boletas (hoja Resumen)")
+    parser.add_argument(
+        "--sheet",
+        type=str,
+        default=None,
+        help="Hoja de origen en Solicitud.xlsx (por defecto Solicitud).",
+    )
     utils.register_non_interactive_cli(parser)
     utils.register_period_args(parser)
     args = parser.parse_args()

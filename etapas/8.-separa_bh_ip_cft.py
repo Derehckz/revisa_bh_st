@@ -334,6 +334,7 @@ def main():
     parser.add_argument('--mover', action='store_true', help='Mover archivos en vez de copiar')
     parser.add_argument('--no-interactive', action='store_true', help='No preguntar; usar --map para suministrar clasificaciones')
     parser.add_argument('--map', type=str, help='CSV con mapeo RUT_SIN_DV,IP/CFT para clasificación no interactiva')
+    parser.add_argument('--sheet', type=str, default=None, help='Hoja del Excel (ej. Solicitud).')
     utils.register_non_interactive_cli(parser)
     utils.register_period_args(parser)
     args = parser.parse_args()
@@ -424,10 +425,10 @@ def main():
         utils.print_error(f"Error leyendo el archivo Excel: {e}")
         return
 
-    hoja = (
-        utils.pick_excel_sheet(hojas)
-        if utils.is_non_interactive()
-        else utils.seleccionar_opcion(hojas, "Seleccione la hoja del Excel para usar:", "📄")
+    hoja = utils.choose_excel_sheet(
+        hojas,
+        sheet=getattr(args, "sheet", None),
+        prompt_message="Seleccione la hoja del Excel para usar:",
     )
     try:
         df = pd.read_excel(ruta_excel, sheet_name=hoja, engine='openpyxl')

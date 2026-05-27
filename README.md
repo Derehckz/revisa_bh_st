@@ -19,6 +19,7 @@ Sistema para gestionar el flujo mensual de boletas de honorarios, con:
   - `x-request-id`,
   - rate limit básico por IP + key.
 - Tests base de API pasando.
+- Frontend web (React + Vite) en `frontend/` con vista **Operación** (pipeline 0–10 vía API).
 
 ---
 
@@ -51,11 +52,19 @@ Sistema para gestionar el flujo mensual de boletas de honorarios, con:
 - Windows (Outlook COM para scripts de correo/extracción).
 - Python 3.10+.
 - PostgreSQL local o remoto.
+- **Node.js 18+** (solo para el frontend web).
 
-Instalación:
+Instalación backend:
 
 ```bash
 python -m pip install -r requirements.txt
+```
+
+Instalación frontend (una vez):
+
+```bash
+cd frontend
+npm install
 ```
 
 ---
@@ -90,6 +99,8 @@ python main.py --year 2026 --month Abril --start-from 3 --end-at 5
 
 ### API local
 
+En una terminal, desde la raíz del repo:
+
 ```bash
 python -m uvicorn api.app:app --host 127.0.0.1 --port 8000
 ```
@@ -101,6 +112,42 @@ curl -X GET "http://127.0.0.1:8000/periods" \
   -H "x-api-key: <tu_api_key>" \
   -H "x-request-id: smoke-001"
 ```
+
+### Frontend web (desarrollo)
+
+1. Levanta la API (paso anterior) con la misma `BH_API_KEY` que usarás en el navegador.
+2. En `.env` de la raíz, permite CORS del dev server (si no, el navegador bloqueará las peticiones):
+
+   ```env
+   BH_API_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+   ```
+
+   Reinicia uvicorn después de cambiar `.env`.
+
+3. En otra terminal:
+
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+
+4. Abre en el navegador: **http://localhost:5173**
+
+   - **Dashboard**, **Período**, **Boletas**, **Docentes**, **Runs**: lectura vía API.
+   - **Operación**: ejecutar pasos 0–10 del pipeline (misma lógica que consola con `--yes`).
+   - **Configuración**: URL de la API (por defecto `http://127.0.0.1:8000`) y `x-api-key` (debe coincidir con `BH_API_KEY` del `.env`).
+
+El período por defecto en Operación es **Abril 2026** (mes cerrado de referencia).
+
+Build de producción (opcional):
+
+```bash
+cd frontend
+npm run build
+npm run preview
+```
+
+`preview` sirve el build en **http://localhost:4173** (sigue necesitando la API en `:8000`).
 
 ---
 
@@ -167,6 +214,8 @@ Guía operativa completa (setup, validaciones, troubleshooting, criterios de sal
 │   ├── check_domain.py
 │   ├── check_period.py
 │   └── check_runs.py
+├── frontend/               # UI React (Vite): npm run dev → :5173
+│   └── src/features/operacion/  # sala de control pipeline
 ├── alembic/
 ├── API_CONTRACT.md
 ├── RUNBOOK.md

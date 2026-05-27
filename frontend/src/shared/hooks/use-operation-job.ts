@@ -1,6 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet } from "@/shared/api/client";
-import type { OperationJob } from "@/shared/api/types";
+import type { ExecutionHistoryEntry, OperationJob } from "@/shared/api/types";
+
+export function historyEntryToJob(entry: ExecutionHistoryEntry): OperationJob {
+  const status =
+    entry.status === "running" || entry.status === "success" || entry.status === "failed"
+      ? entry.status
+      : "unknown";
+  return {
+    id: entry.id,
+    stage_num: entry.stage_num,
+    type: entry.type,
+    status,
+    year: entry.year,
+    month: entry.month,
+    created_at: entry.created_at,
+    log_path: entry.log_path ?? "",
+    pid: entry.pid,
+    return_code: entry.return_code,
+    finished_at: entry.finished_at,
+    source: entry.source,
+    label: entry.label,
+  };
+}
 
 const POLL_MS = 1500;
 
@@ -46,6 +68,40 @@ export function useOperationJob(baseUrl: string, apiKey: string) {
     [refreshJob]
   );
 
+  const selectHistoryEntry = useCallback(
+    async (
+      entry: ExecutionHistoryEntry,
+      range: { year: number; fromMonth: string; toMonth: string }
+    ) => {
+      const job = historyEntryToJob(entry);
+      setSelectedJob(job);
+      if (entry.source === "api" && !entry.id.startsWith("hist_")) {
+        try {
+          await refreshJob(entry.id);
+        } catch {
+          setLogs("");
+        }
+        return;
+      }
+      try {
+        const q = new URLSearchParams({
+          year: String(range.year),
+          from_month: range.fromMonth,
+          to_month: range.toMonth,
+        });
+        const logPayload = await apiGet<{ entry_id: string; logs: string }>(
+          baseUrl,
+          apiKey,
+          `/operations/history/${encodeURIComponent(entry.id)}/logs?${q.toString()}`
+        );
+        setLogs(logPayload.logs);
+      } catch {
+        setLogs("");
+      }
+    },
+    [apiKey, baseUrl, refreshJob]
+  );
+
   useEffect(() => {
     let t: number | undefined;
     if (selectedJob?.id && selectedJob.status === "running") {
@@ -72,6 +128,7 @@ export function useOperationJob(baseUrl: string, apiKey: string) {
     logsRef,
     refreshJob,
     selectJob,
+    selectHistoryEntry,
     progress: parseStepProgress(logs),
   };
 }

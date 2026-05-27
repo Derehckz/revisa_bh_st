@@ -6,9 +6,13 @@ import type {
   DocenteListResponse,
   DocenteProfileResponse,
   HealthResponse,
+  JobArtifact,
+  ExecutionHistoryResponse,
   OperationJob,
+  OutboxRow,
   PaginatedBoletas,
   Period,
+  PeriodOverviewResponse,
   PeriodInsightsResponse,
   PeriodSummary,
   RunStagesResponse,
@@ -205,12 +209,96 @@ export function useStep0Options(baseUrl: string, apiKey: string, year?: number, 
   return useStageOptions(baseUrl, apiKey, 0, year, month);
 }
 
-export function useOperationJobs(baseUrl: string, apiKey: string, limit = 20) {
+export function usePeriodOverview(baseUrl: string, apiKey: string, year?: number, month?: string) {
   return useQuery({
-    queryKey: ["operations-jobs", baseUrl, limit],
+    queryKey: ["period-overview", baseUrl, year, month],
+    enabled: Boolean(year && month),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data?.running_job ? 3000 : false;
+    },
+    queryFn: () =>
+      apiGet<PeriodOverviewResponse>(
+        baseUrl,
+        apiKey,
+        `/operations/period/overview?year=${year}&month=${encodeURIComponent(month || "")}`
+      ),
+  });
+}
+
+export function useJobArtifacts(baseUrl: string, apiKey: string, jobId: string | null) {
+  const isApiJob = Boolean(jobId && !jobId.startsWith("hist_"));
+  return useQuery({
+    queryKey: ["job-artifacts", baseUrl, jobId],
+    enabled: isApiJob,
+    queryFn: () =>
+      apiGet<{ job_id: string; artifacts: JobArtifact[] }>(
+        baseUrl,
+        apiKey,
+        `/operations/jobs/${jobId}/artifacts`
+      ),
+  });
+}
+
+export function useOutboxStats(baseUrl: string, apiKey: string) {
+  return useQuery({
+    queryKey: ["outbox-stats", baseUrl],
+    queryFn: () => apiGet<{ by_status: Record<string, number> }>(baseUrl, apiKey, "/operations/outbox/stats"),
+    refetchInterval: 15000,
+  });
+}
+
+export function useOutboxRows(baseUrl: string, apiKey: string, status?: string, limit = 50) {
+  return useQuery({
+    queryKey: ["outbox-rows", baseUrl, status, limit],
+    queryFn: () =>
+      apiGet<{ data: OutboxRow[] }>(
+        baseUrl,
+        apiKey,
+        `/operations/outbox/rows?limit=${limit}${status ? `&status=${encodeURIComponent(status)}` : ""}`
+      ),
+  });
+}
+
+export function useOperationJobs(
+  baseUrl: string,
+  apiKey: string,
+  limit = 50,
+  year?: number,
+  month?: string
+) {
+  return useQuery({
+    queryKey: ["operations-jobs", baseUrl, limit, year, month],
     queryFn: async () => {
-      const payload = await apiGet<{ data: OperationJob[] }>(baseUrl, apiKey, `/operations/jobs?limit=${limit}`);
+      const q = new URLSearchParams({ limit: String(limit) });
+      if (year != null) q.set("year", String(year));
+      if (month) q.set("month", month);
+      const payload = await apiGet<{ data: OperationJob[] }>(
+        baseUrl,
+        apiKey,
+        `/operations/jobs?${q.toString()}`
+      );
       return payload.data;
     },
+  });
+}
+
+export function useExecutionHistory(
+  baseUrl: string,
+  apiKey: string,
+  year: number,
+  fromMonth: string,
+  toMonth: string,
+  limit = 500
+) {
+  return useQuery({
+    queryKey: ["operations-history", baseUrl, year, fromMonth, toMonth, limit],
+    queryFn: () =>
+      apiGet<ExecutionHistoryResponse>(
+        baseUrl,
+        apiKey,
+        `/operations/history?year=${year}&from_month=${encodeURIComponent(fromMonth)}&to_month=${encodeURIComponent(toMonth)}&limit=${limit}`
+      ),
+    staleTime: 60_000,
   });
 }

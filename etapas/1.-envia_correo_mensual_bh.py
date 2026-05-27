@@ -324,10 +324,10 @@ def main(args):
         utils.print_error(f"Error al leer el Excel: {e}")
         return
 
-    hoja_seleccionada = (
-        utils.pick_excel_sheet(hojas)
-        if utils.is_non_interactive()
-        else utils.seleccionar_opcion(hojas, "Seleccione la hoja del Excel para validar")
+    hoja_seleccionada = utils.choose_excel_sheet(
+        hojas,
+        sheet=getattr(args, "sheet", None),
+        prompt_message="Seleccione la hoja del Excel para validar",
     )
     df = pd.read_excel(ruta_archivo_excel, sheet_name=hoja_seleccionada, engine='openpyxl')
 
@@ -521,6 +521,12 @@ if __name__ == "__main__":
         '--strict',
         action='store_true',
         help='Aborta si la Solicitud.xlsx no cumple el esquema canónico.',
+    )
+    parser.add_argument(
+        '--sheet',
+        type=str,
+        default=None,
+        help='Nombre de la hoja del Excel (ej. Solicitud).',
     )
     utils.register_non_interactive_cli(parser, with_send=True)
     args = parser.parse_args()

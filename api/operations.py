@@ -11,7 +11,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 import config
+import ops_execution_history
 import stage_commands
+import stage_interactive_options
+import stage_operations
+import stage_ui_guides
 from settings import get_setting
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -106,24 +110,117 @@ def list_stage_options(stage_num: int, year: int, month: str) -> dict:
     if not stage:
         raise ValueError(f"Etapa inválida: {stage_num}")
 
-    prereq = stage_commands.describe_prerequisites(stage_num, year, month)
+    checklist = stage_operations.prerequisite_checklist(stage_num, year, month)
+    prereq = stage_operations.prerequisites_summary(checklist)
+    period_jobs = _jobs_for_period(year, month)
+    running = _running_job_for_period(year, month, jobs=period_jobs)
+
     base: dict[str, Any] = {
         "stage_num": stage_num,
         "year": year,
         "month": month,
         "prerequisites": prereq,
+        "checklist": checklist,
+        "warnings": stage_operations.warnings_for_stage(stage_num, year, month),
+        "estimated_outputs": stage_operations.estimated_outputs_for_stage(stage_num, year, month),
+        "ui_status": stage_operations.ui_status_for_stage(
+            stage_num, year, month, jobs=period_jobs, running_job=running
+        ),
         "enabled_for_api": stage_num in stage_commands.API_ENABLED_STAGES,
+        "period_kpis": stage_operations.period_summary(year, month),
+        "running_job": (
+            {"id": running["id"], "stage_num": running.get("stage_num")}
+            if running
+            else None
+        ),
     }
+
+    base["guide"] = stage_ui_guides.get_stage_guide(stage_num)
+    base["choices"] = stage_interactive_options.build_interactive_choices(stage_num, year, month)
 
     if stage_num == 0:
         opts = list_step0_options(year, month)
         base.update(opts)
     else:
         base["month_dir"] = _month_path(year, month)
-        base["params_schema"] = stage_commands.params_schema_for_stage(stage_num)
+        schema = stage_commands.params_schema_for_stage(stage_num)
+        base["params_schema"] = stage_interactive_options.enrich_params_schema(
+            stage_num, year, month, schema
+        )
         base["is_email_stage"] = stage_num in stage_commands.EMAIL_STAGES
 
     return base
+
+
+def period_overview(year: int, month: str) -> dict:
+    _ensure_jobs_loaded()
+    jobs = _jobs_for_period(year, month, limit=80)
+    return stage_operations.period_overview(year, month, jobs=jobs)
+
+
+def _jobs_for_period(year: int | str, month: str, limit: int = 80) -> list[dict]:
+    with _JOBS_LOCK:
+        jobs = list(_JOBS.values())
+    jobs = [
+        j
+        for j in jobs
+        if str(j.get("year")) == str(year) and str(j.get("month")) == month
+    ]
+    jobs.sort(key=lambda j: j.get("created_at", ""), reverse=True)
+    return [dict(j) for j in jobs[:limit]]
+
+
+def _running_job_for_period(
+    year: int | str,
+    month: str,
+    *,
+    jobs: list[dict] | None = None,
+) -> dict | None:
+    jobs = jobs if jobs is not None else _jobs_for_period(year, month)
+    for j in jobs:
+        if j.get("status") == "running":
+            return j
+    return None
+
+
+def get_job_artifacts(job_id: str) -> list[dict]:
+    job = get_job(job_id)
+    if not job:
+        return []
+    return stage_operations.artifacts_for_job(job)
+
+
+def get_job_artifact_path(job_id: str, artifact_id: str) -> str | None:
+    job = get_job(job_id)
+    if not job:
+        return None
+    return stage_operations.resolve_job_artifact_path(job, artifact_id)
+
+
+def outbox_stats() -> dict:
+    import email_outbox
+
+    return {"by_status": email_outbox.stats_by_status()}
+
+
+def outbox_list_rows(*, status: str | None = None, limit: int = 50) -> list[dict]:
+    import email_outbox
+
+    return email_outbox.list_rows(status=status or None, limit=limit)
+
+
+def outbox_dispatch_com(*, limit: int = 30, dry_run: bool = False) -> dict:
+    import outbox_com_dispatch
+
+    ok, fail, skip = outbox_com_dispatch.dispatch_pending_com(limit=limit, dry_run=dry_run)
+    return {"ok": ok, "failed": fail, "dry_skipped": skip}
+
+
+def outbox_reopen_failed(*, limit: int = 200) -> dict:
+    import email_outbox
+
+    n = email_outbox.reopen_failed_as_pending(limit=limit)
+    return {"reopened": n}
 
 
 def list_step0_options(year: int, month: str) -> dict:
@@ -224,6 +321,13 @@ def start_stage_job(stage_num: int, params: dict[str, Any]) -> dict:
 
     stage_commands.check_prerequisites(stage_num, year, month)
 
+    running = _running_job_for_period(year, month)
+    if running:
+        raise ValueError(
+            f"Ya hay un job en ejecución para {month} {year} "
+            f"(id={running['id']}, paso {running.get('stage_num')}). Espere a que termine."
+        )
+
     merged = dict(params)
     merged.setdefault("year", year)
     merged.setdefault("month", month)
@@ -320,14 +424,67 @@ def get_job(job_id: str) -> dict | None:
     return dict(job)
 
 
-def list_jobs(limit: int = 20, stage_num: int | None = None) -> list[dict]:
+def list_jobs(
+    limit: int = 20,
+    stage_num: int | None = None,
+    year: int | str | None = None,
+    month: str | None = None,
+) -> list[dict]:
     _ensure_jobs_loaded()
     with _JOBS_LOCK:
         jobs = list(_JOBS.values())
     jobs.sort(key=lambda j: j.get("created_at", ""), reverse=True)
     if stage_num is not None:
         jobs = [j for j in jobs if j.get("stage_num") == stage_num]
+    if year is not None and month:
+        jobs = [
+            j
+            for j in jobs
+            if str(j.get("year")) == str(year) and str(j.get("month")) == month
+        ]
     return [dict(j) for j in jobs[:limit]]
+
+
+def list_execution_history(
+    *,
+    year: int,
+    from_month: str,
+    to_month: str,
+    limit: int = 500,
+) -> dict:
+    _ensure_jobs_loaded()
+    with _JOBS_LOCK:
+        all_jobs = list(_JOBS.values())
+    return ops_execution_history.list_execution_history(
+        year=year,
+        from_month=from_month,
+        to_month=to_month,
+        api_jobs=all_jobs,
+        limit=limit,
+    )
+
+
+def read_history_logs(
+    entry_id: str,
+    *,
+    year: int = 2026,
+    from_month: str = "Enero",
+    to_month: str = "Diciembre",
+    max_chars: int = 50000,
+) -> str:
+    job = get_job(entry_id)
+    if job:
+        return read_job_log(entry_id, max_chars=max_chars)
+    hist = list_execution_history(
+        year=year,
+        from_month=from_month,
+        to_month=to_month,
+        limit=2000,
+    )
+    entry = next((e for e in hist["data"] if e["id"] == entry_id), None)
+    if entry and entry.get("artifact_path", "").lower().endswith(".xlsx"):
+        return "(Archivo Excel — descárgalo desde Resultados del período o la carpeta del mes.)"
+    return ops_execution_history.read_history_log(entry_id, hist["data"], max_chars=max_chars)
 
 
 def read_job_log(job_id: str, max_chars: int = 12000) -> str:

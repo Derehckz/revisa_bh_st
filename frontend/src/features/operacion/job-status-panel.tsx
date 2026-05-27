@@ -1,6 +1,10 @@
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
-import { mapApiErrorMessage } from "@/shared/api/client";
 import type { OperationJob } from "@/shared/api/types";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { useToast } from "@/shared/ui/toast";
 
 const OUTPUT_STAGES = new Set([0, 1, 3, 4, 5, 6, 7, 8, 9, 10]);
 
@@ -13,11 +17,6 @@ function outputLabel(job: OperationJob) {
   if (stage === 10) return "revision_carpetas.xlsx";
   return job.output_file || "Solicitud.xlsx";
 }
-import { Badge } from "@/shared/ui/badge";
-import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
-import { Skeleton } from "@/shared/ui/skeleton";
-import { useToast } from "@/shared/ui/toast";
 
 type Props = {
   baseUrl: string;
@@ -70,9 +69,7 @@ export function JobStatusPanel({
               <span>
                 Job: <strong>{selectedJob.id}</strong>
               </span>
-              <span className="text-muted-foreground">
-                Paso {selectedJob.stage_num ?? 0}
-              </span>
+              <span className="text-muted-foreground">Paso {selectedJob.stage_num ?? 0}</span>
               {selectedJob.status === "running" && (
                 <Badge>
                   <span className="inline-flex items-center gap-1">
@@ -118,16 +115,27 @@ export function JobStatusPanel({
             >
               {logs || (selectedJob.status === "running" ? <Skeleton className="h-24 w-full" /> : "Sin logs todavía.")}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" onClick={() => void openProtectedFile(`/operations/jobs/${selectedJob.id}/log-file`)}>
-                Descargar log
-              </Button>
-              {showOutputButton && selectedJob.status === "success" && hasDownloadableOutput(selectedJob) && (
-                <Button onClick={() => void openProtectedFile(`/operations/jobs/${selectedJob.id}/output`)}>
-                  Abrir {outputLabel(selectedJob)}
+            {selectedJob.source !== "filesystem" && !selectedJob.id.startsWith("hist_") && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => void openProtectedFile(`/operations/jobs/${selectedJob.id}/log-file`)}
+                >
+                  Descargar log
                 </Button>
+                {showOutputButton && selectedJob.status === "success" && hasDownloadableOutput(selectedJob) && (
+                  <Button onClick={() => void openProtectedFile(`/operations/jobs/${selectedJob.id}/output`)}>
+                    Abrir {outputLabel(selectedJob)}
+                  </Button>
+                )}
+              </div>
+            )}
+            {(selectedJob.source === "filesystem" || selectedJob.id.startsWith("hist_")) &&
+              selectedJob.label && (
+                <p className="text-xs text-muted-foreground truncate" title={selectedJob.label}>
+                  Archivo: {selectedJob.label}
+                </p>
               )}
-            </div>
           </>
         )}
       </CardContent>

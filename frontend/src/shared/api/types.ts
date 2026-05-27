@@ -227,6 +227,36 @@ export type PipelineStageMeta = {
   is_email_stage?: boolean;
 };
 
+export type SelectOption = {
+  value: string;
+  label: string;
+};
+
+export type StageGuideStep = {
+  id: string;
+  title: string;
+  detail: string;
+};
+
+export type StageGuide = {
+  title: string;
+  summary: string;
+  steps: StageGuideStep[];
+};
+
+export type InteractiveChoices = {
+  month_dir: string;
+  month_dir_label: string;
+  solicitud_file?: string | null;
+  solicitud_sheets?: string[];
+  solicitud_sheet_auto?: string;
+  excel_files_in_month?: string[];
+  map_csv_files?: SelectOption[];
+  maestro_files?: string[];
+  bd_candidates?: string[];
+  institucion_options?: SelectOption[];
+};
+
 export type StageParamField = {
   name: string;
   type: string;
@@ -235,10 +265,44 @@ export type StageParamField = {
   required?: boolean;
   default?: boolean | string | null;
   help?: string;
+  options?: SelectOption[];
 };
 
 export type StagesListResponse = {
   stages: PipelineStageMeta[];
+};
+
+export type StageUiStatus = "READY" | "BLOCKED" | "RUNNING" | "OK" | "ERROR";
+
+export type PrerequisiteItem = {
+  id: string;
+  label: string;
+  ok: boolean;
+  blocking?: boolean;
+  message?: string;
+};
+
+export type StageWarning = {
+  code: string;
+  message: string;
+};
+
+export type EstimatedOutput = {
+  id: string;
+  label: string;
+};
+
+export type PeriodKpis = {
+  year: number | string;
+  month: string;
+  month_dir: string;
+  solicitud_exists: boolean;
+  total_rows: number;
+  recibidos: number;
+  no_recibidos: number;
+  xml_files_in_month: number;
+  pdf_files_in_month: number;
+  read_error?: string;
 };
 
 export type Step0OptionsResponse = {
@@ -248,17 +312,84 @@ export type Step0OptionsResponse = {
   maestro_files: string[];
   bd_candidates: string[];
   stage_num?: number;
-  prerequisites?: { ok: boolean; message: string };
+  prerequisites?: { ok: boolean; message: string; failed_ids?: string[] };
+  checklist?: PrerequisiteItem[];
+  warnings?: StageWarning[];
+  estimated_outputs?: EstimatedOutput[];
+  ui_status?: StageUiStatus;
+  period_kpis?: PeriodKpis;
+  running_job?: { id: string; stage_num?: number } | null;
   enabled_for_api?: boolean;
   params_schema?: StageParamField[];
   is_email_stage?: boolean;
+  guide?: StageGuide;
+  choices?: InteractiveChoices;
+};
+
+export type PeriodOverviewStage = PipelineStageMeta & {
+  ui_status: StageUiStatus;
+  prerequisites: { ok: boolean; message: string; failed_ids?: string[] };
+  checklist: PrerequisiteItem[];
+  warnings: StageWarning[];
+  estimated_outputs: EstimatedOutput[];
+  last_job: {
+    id: string;
+    status: string;
+    created_at?: string;
+    finished_at?: string | null;
+    source?: "api" | "filesystem";
+    label?: string;
+    log_path?: string | null;
+  } | null;
+};
+
+export type RecommendationKind = "run" | "wait" | "fix" | "complete" | "review" | "outbox";
+
+export type PeriodRecommendation = {
+  kind: RecommendationKind;
+  stage_num: number | null;
+  title: string;
+  message: string;
+  action_label?: string;
+};
+
+export type PeriodOverviewResponse = {
+  period: { year: number; month: string };
+  kpis: PeriodKpis;
+  stages: PeriodOverviewStage[];
+  running_job: { id: string; stage_num?: number; type?: string } | null;
+  outbox_stats: Record<string, number>;
+  recommendation?: PeriodRecommendation;
+};
+
+export type JobArtifact = {
+  id: string;
+  label: string;
+  path?: string;
+  filename: string;
+  kind: string;
+  exists: boolean;
+  size_bytes?: number;
+  download_url: string;
+};
+
+export type OutboxRow = {
+  id: number;
+  stage: string;
+  item_key: string;
+  status: string;
+  created_at: string;
+  updated_at: string | null;
+  attempts: number;
+  last_error: string | null;
+  payload: string | null;
 };
 
 export type OperationJob = {
   id: string;
   stage_num?: number;
   type: string;
-  status: "running" | "success" | "failed";
+  status: "running" | "success" | "failed" | "unknown";
   year: number;
   month: string;
   maestro_file?: string;
@@ -271,4 +402,33 @@ export type OperationJob = {
   pid: number | null;
   return_code: number | null;
   finished_at: string | null;
+  source?: "api" | "filesystem";
+  label?: string;
+};
+
+export type ExecutionHistoryEntry = {
+  id: string;
+  source: "api" | "filesystem";
+  stage_num: number;
+  status: string;
+  year: number;
+  month: string;
+  type: string;
+  created_at: string;
+  finished_at: string | null;
+  log_path: string | null;
+  label: string;
+  pid: number | null;
+  return_code: number | null;
+  artifact_path?: string;
+};
+
+export type ExecutionHistoryResponse = {
+  year: number;
+  from_month: string;
+  to_month: string;
+  total: number;
+  returned: number;
+  by_month: Array<{ period: string; count: number }>;
+  data: ExecutionHistoryEntry[];
 };

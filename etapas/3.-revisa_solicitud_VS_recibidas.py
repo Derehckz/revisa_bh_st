@@ -552,17 +552,11 @@ def main(args=None):
     wb = load_workbook(ruta_excel, read_only=True)
     hojas = wb.sheetnames
     wb.close()
-    # Sugerir hoja canónica "Solicitud" cuando exista (tolerante a alias)
-    hoja_canonica = schema_validator.find_sheet(hojas, "Solicitud")
-    if hoja_canonica and hoja_canonica in hojas:
-        hoja = hoja_canonica
-        utils.print_info(f"Usando hoja canónica detectada: '{hoja}'")
-    else:
-        hoja = (
-            utils.pick_excel_sheet(hojas)
-            if utils.is_non_interactive()
-            else seleccionar_opcion(hojas, "Seleccione la hoja del Excel para validar:", "📄")
-        )
+    hoja = utils.choose_excel_sheet(
+        hojas,
+        sheet=getattr(args, "sheet", None),
+        prompt_message="Seleccione la hoja del Excel para validar:",
+    )
     df = pd.read_excel(ruta_excel, sheet_name=hoja, engine='openpyxl')
 
     # Validación canónica del esquema (Fase 3)
@@ -625,6 +619,12 @@ if __name__ == "__main__":
         "--strict",
         action="store_true",
         help="Aborta si la Solicitud.xlsx no cumple el esquema canónico.",
+    )
+    parser.add_argument(
+        "--sheet",
+        type=str,
+        default=None,
+        help="Nombre de la hoja del Excel (ej. Solicitud).",
     )
     utils.register_non_interactive_cli(parser)
     utils.register_period_args(parser)
