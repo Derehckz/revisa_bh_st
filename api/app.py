@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
 
 from api import operations, schemas, security, services
+from api.interactive.router import router as interactive_router
 from db.session import SessionLocal
 from settings import get_setting
 
@@ -29,6 +30,8 @@ app = FastAPI(
     version="0.1.0",
     description="API read-only para consultar periodos y métricas del pipeline.",
 )
+
+app.include_router(interactive_router)
 security.install_cors(app)
 logger = logging.getLogger("boletas.api")
 _ACCESS_LOGGER = logging.getLogger("boletas.api.access")

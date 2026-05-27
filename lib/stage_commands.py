@@ -145,6 +145,13 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
         return [
             _param_field("send", cli="--send", label="Enviar correos de recepción"),
             _param_field("force_resend", cli="--force-resend", label="Forzar reenvío"),
+            _param_field(
+                "supervision_mode",
+                type_="string",
+                label="Supervisión (per_mail | batch)",
+                default="per_mail",
+                help_text="En web solo vista previa; envío real por consola.",
+            ),
         ]
     if stage_num == 7:
         return [
@@ -155,9 +162,15 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
                 cli="--fecha-pago",
                 label="Fecha de pago (dd/mm/aaaa)",
                 required=False,
-                help_text="Obligatoria si envía correos.",
+                help_text="Obligatoria para vista previa en web.",
             ),
             _param_field("force_resend", cli="--force-resend", label="Forzar reenvío"),
+            _param_field(
+                "supervision_mode",
+                type_="string",
+                label="Supervisión (per_mail | batch)",
+                default="per_mail",
+            ),
         ]
     if stage_num == 2:
         return [
@@ -188,7 +201,8 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
                 type_="string",
                 cli="--map",
                 label="Ruta CSV clasificación (RUT,CFT|IP)",
-                help_text="Recomendado en modo API para evitar prompts.",
+                required=False,
+                help_text="Obligatorio en sesión web supervisada (no en job rápido).",
             ),
             _param_field("no_interactive", cli="--no-interactive", label="Sin prompts (usar con CSV)"),
         ]
@@ -227,6 +241,23 @@ def validate_stage_params(stage_num: int, params: dict[str, Any]) -> None:
     if stage_num == 2:
         if not params.get("fecha_inicio") or not params.get("fecha_fin"):
             raise ValueError("fecha_inicio y fecha_fin son obligatorias para el paso 2")
+
+
+def validate_interactive_params(stage_num: int, params: dict[str, Any]) -> None:
+    """Validación extra para sesiones WebSocket supervisadas (no envía por defecto)."""
+    validate_stage_params(stage_num, params)
+
+    if stage_num == 8 and not str(params.get("map_csv") or "").strip():
+        raise ValueError(
+            "Etapa 8 (web supervisada): indique map_csv (CSV RUT,CFT|IP). "
+            "Genérelo con herramientas/generar_map_ip_cft.py si falta."
+        )
+
+    if stage_num in (5, 7) and params.get("send"):
+        raise ValueError(
+            f"Etapa {stage_num}: el envío real de correos no está habilitado en sesión web. "
+            "Use la consola con supervisión manual (--send) o deje send=false para vista previa."
+        )
 
 
 def _apply_schema_flags(stage_num: int, params: dict[str, Any], extra: list[str], *, repo_root: str) -> None:
@@ -349,6 +380,7 @@ def list_stages_metadata() -> list[dict[str, Any]]:
                 "optional_in_full_run": s.get("optional_in_full_run", False),
                 "enabled_for_api": num in API_ENABLED_STAGES,
                 "is_email_stage": num in EMAIL_STAGES,
+                "interactive_supervised": True,
             }
         )
     return out

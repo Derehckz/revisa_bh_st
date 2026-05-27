@@ -183,10 +183,22 @@ Acción:
 - Asegurar uso correcto de `BH_DB_*`.
 - Validar usuario/password directos con `psql`.
 
-## 7) Criterio de salida (release-ready mínimo)
+## 7) Sesiones web supervisadas vs envío real
+
+- La **CI y pytest** no envían correos ni abren Outlook (ver batería en `README.md`).
+- En la web, las etapas **5 y 7** rechazan `send=true` en sesión interactiva; solo **vista previa** (`per_mail`).
+- El **envío real** de recepción/pagos: consola con supervisión manual, por ejemplo:
+  ```bash
+  python etapas/5.-Enviar_Correo_Recepcion.py --year 2026 --month Mayo --supervision-mode per_mail --send
+  python etapas/7.-Envia_mail_pagos.py --year 2026 --month Mayo --fecha-pago 15/05/2026 --supervision-mode per_mail --send
+  ```
+- Etapa **8** en web: obligatorio `map_csv` (CSV RUT,IP|CFT). Generar con `python herramientas/generar_map_ip_cft.py` si falta.
+- Etapa **10**: la sesión web emite eventos `folder.progress` (N/M carpetas).
+
+## 8) Criterio de salida (release-ready mínimo)
 
 - API responde `200` en `/health` y `/periods` con key.
-- Tests API base pasan.
+- Batería pytest de CI en verde (sin envío de correos).
 - `check_domain.py` y `check_period.py` sin inconsistencias críticas.
 - `.env` completo y validado en ambiente.
 - Contrato actualizado en `API_CONTRACT.md`.
@@ -204,7 +216,7 @@ Acción:
   - validar mensaje UX para `401/422/429/503`.
   - validar shortcuts (`Ctrl+B`, `/`, `Esc`).
 
-## 8) Referencias
+## 9) Referencias
 
 - Contrato API: `API_CONTRACT.md`
 - Variables ejemplo: `.env.example`

@@ -392,13 +392,19 @@ def eliminar_marcadores(ruta_mes, institutos):
     return count
 
 
-def ejecutar_trabajos(trabajos, procesos):
-    """Ejecuta la lista de trabajos en paralelo y devuelve la lista de registros resultantes."""
+def ejecutar_trabajos(trabajos, procesos, progress_hook=None):
+    """Ejecuta la lista de trabajos en paralelo y devuelve la lista de registros resultantes.
+
+    progress_hook: opcional callable(current, total, last_result) tras cada carpeta.
+    """
     registros_local = []
+    total = len(trabajos)
     with ThreadPoolExecutor(max_workers=procesos) as executor:
-        for res in executor.map(_worker_tuple, trabajos):
+        for i, res in enumerate(executor.map(_worker_tuple, trabajos), start=1):
             if res:
                 registros_local.append(res)
+            if progress_hook is not None:
+                progress_hook(i, total, res)
     return registros_local
 
 

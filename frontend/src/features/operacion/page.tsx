@@ -18,6 +18,11 @@ import { PipelineSidebar } from "./pipeline-sidebar";
 import { GenericStagePanel } from "./generic-stage-panel";
 import { StageArtifactsPanel } from "./stage-artifacts-panel";
 import { Step0Panel } from "./step0-panel";
+import { BridgedInteractivePanel } from "./interactive/bridged-interactive-panel";
+import { Stage1InteractivePanel } from "./interactive/stage1-interactive-panel";
+import { Stage2InteractivePanel } from "./interactive/stage2-interactive-panel";
+import { Stage3InteractivePanel } from "./interactive/stage3-interactive-panel";
+import { Stage4InteractivePanel } from "./interactive/stage4-interactive-panel";
 import { ClosePeriodPanel } from "./close-period-panel";
 import { PeriodToolbar } from "./period-toolbar";
 import { OperacionTabs, type OperacionTab } from "./operacion-tabs";
@@ -193,36 +198,194 @@ export function OperacionPage() {
             {activeTab === "ejecutar" && (
               <>
                 <StageHeaderBanner stage={activeOverviewStage} />
-                {activeStage === 0 && activeMeta?.enabled_for_api && (
-                  <Step0Panel
-                    selectedPeriod={selectedPeriod}
-                    options={stageOptions}
-                    maestroFile={maestroFile}
-                    setMaestroFile={setMaestroFile}
-                    bdFile={bdFile}
-                    setBdFile={setBdFile}
-                    disabled={periodBusy}
-                    isStarting={isStarting}
-                    setIsStarting={setIsStarting}
-                    onStarted={handleJobStarted}
-                    onError={(msg) => push(msg, "error")}
-                    baseUrl={baseUrl}
-                    apiKey={apiKey}
-                  />
+                {activeStage === 0 && activeMeta?.enabled_for_api && selectedPeriod && (
+                  <>
+                    <BridgedInteractivePanel
+                      stageNum={0}
+                      stageTitle={activeMeta.description}
+                      selectedPeriod={selectedPeriod}
+                      options={stageOptions}
+                      maestroFile={maestroFile}
+                      setMaestroFile={setMaestroFile}
+                      bdFile={bdFile}
+                      setBdFile={setBdFile}
+                      baseUrl={baseUrl}
+                      apiKey={apiKey}
+                      disabled={periodBusy}
+                    />
+                    <details className="rounded-lg border border-border p-3">
+                      <summary className="text-sm cursor-pointer text-muted-foreground">
+                        Modo rápido (job con log)
+                      </summary>
+                      <div className="mt-3">
+                        <Step0Panel
+                          selectedPeriod={selectedPeriod}
+                          options={stageOptions}
+                          maestroFile={maestroFile}
+                          setMaestroFile={setMaestroFile}
+                          bdFile={bdFile}
+                          setBdFile={setBdFile}
+                          disabled={periodBusy}
+                          isStarting={isStarting}
+                          setIsStarting={setIsStarting}
+                          onStarted={handleJobStarted}
+                          onError={(msg) => push(msg, "error")}
+                          baseUrl={baseUrl}
+                          apiKey={apiKey}
+                        />
+                      </div>
+                    </details>
+                  </>
                 )}
-                {activeStage !== 0 && activeMeta?.enabled_for_api && (
-                  <GenericStagePanel
-                    stageNum={activeStage}
-                    stageTitle={activeMeta.description}
-                    selectedPeriod={selectedPeriod}
-                    options={stageOptions}
-                    isEmailStage={activeMeta.is_email_stage}
-                    disabled={periodBusy}
-                    onStarted={handleJobStarted}
-                    onError={(msg) => push(msg, "error")}
-                    baseUrl={baseUrl}
-                    apiKey={apiKey}
-                  />
+                {activeStage === 1 && activeMeta?.enabled_for_api && selectedPeriod && (
+                  <>
+                    <Stage1InteractivePanel
+                      selectedPeriod={selectedPeriod}
+                      options={stageOptions}
+                      baseUrl={baseUrl}
+                      apiKey={apiKey}
+                      disabled={periodBusy}
+                    />
+                    <details className="rounded-lg border border-border p-3">
+                      <summary className="text-sm cursor-pointer text-muted-foreground">
+                        Modo rápido (job con log, sin confirmación por correo)
+                      </summary>
+                      <div className="mt-3">
+                        <GenericStagePanel
+                          stageNum={1}
+                          stageTitle={activeMeta.description}
+                          selectedPeriod={selectedPeriod}
+                          options={stageOptions}
+                          isEmailStage={activeMeta.is_email_stage}
+                          disabled={periodBusy}
+                          onStarted={handleJobStarted}
+                          onError={(msg) => push(msg, "error")}
+                          baseUrl={baseUrl}
+                          apiKey={apiKey}
+                        />
+                      </div>
+                    </details>
+                  </>
+                )}
+                {activeStage === 2 && activeMeta?.enabled_for_api && selectedPeriod && (
+                  <>
+                    <Stage2InteractivePanel
+                      selectedPeriod={selectedPeriod}
+                      baseUrl={baseUrl}
+                      apiKey={apiKey}
+                      disabled={periodBusy}
+                    />
+                    <details className="rounded-lg border border-border p-3">
+                      <summary className="text-sm cursor-pointer text-muted-foreground">
+                        Modo rápido (job con log)
+                      </summary>
+                      <div className="mt-3">
+                        <GenericStagePanel
+                          stageNum={2}
+                          stageTitle={activeMeta.description}
+                          selectedPeriod={selectedPeriod}
+                          options={stageOptions}
+                          disabled={periodBusy}
+                          onStarted={handleJobStarted}
+                          onError={(msg) => push(msg, "error")}
+                          baseUrl={baseUrl}
+                          apiKey={apiKey}
+                        />
+                      </div>
+                    </details>
+                  </>
+                )}
+                {activeStage === 3 && activeMeta?.enabled_for_api && selectedPeriod && (
+                  <>
+                    <Stage3InteractivePanel
+                      selectedPeriod={selectedPeriod}
+                      options={stageOptions}
+                      baseUrl={baseUrl}
+                      apiKey={apiKey}
+                      disabled={periodBusy}
+                    />
+                    <details className="rounded-lg border border-border p-3">
+                      <summary className="text-sm cursor-pointer text-muted-foreground">
+                        Modo rápido (job con log)
+                      </summary>
+                      <div className="mt-3">
+                        <GenericStagePanel
+                          stageNum={3}
+                          stageTitle={activeMeta.description}
+                          selectedPeriod={selectedPeriod}
+                          options={stageOptions}
+                          disabled={periodBusy}
+                          onStarted={handleJobStarted}
+                          onError={(msg) => push(msg, "error")}
+                          baseUrl={baseUrl}
+                          apiKey={apiKey}
+                        />
+                      </div>
+                    </details>
+                  </>
+                )}
+                {activeStage === 4 && activeMeta?.enabled_for_api && selectedPeriod && (
+                  <>
+                    <Stage4InteractivePanel
+                      selectedPeriod={selectedPeriod}
+                      options={stageOptions}
+                      baseUrl={baseUrl}
+                      apiKey={apiKey}
+                      disabled={periodBusy}
+                    />
+                    <details className="rounded-lg border border-border p-3">
+                      <summary className="text-sm cursor-pointer text-muted-foreground">
+                        Modo rápido (job con log)
+                      </summary>
+                      <div className="mt-3">
+                        <GenericStagePanel
+                          stageNum={4}
+                          stageTitle={activeMeta.description}
+                          selectedPeriod={selectedPeriod}
+                          options={stageOptions}
+                          disabled={periodBusy}
+                          onStarted={handleJobStarted}
+                          onError={(msg) => push(msg, "error")}
+                          baseUrl={baseUrl}
+                          apiKey={apiKey}
+                        />
+                      </div>
+                    </details>
+                  </>
+                )}
+                {[5, 6, 7, 8, 9, 10].includes(activeStage) &&
+                  activeMeta?.enabled_for_api &&
+                  selectedPeriod && (
+                  <>
+                    <BridgedInteractivePanel
+                      stageNum={activeStage}
+                      stageTitle={activeMeta.description}
+                      selectedPeriod={selectedPeriod}
+                      options={stageOptions}
+                      baseUrl={baseUrl}
+                      apiKey={apiKey}
+                      disabled={periodBusy}
+                    />
+                    <details className="rounded-lg border border-border p-3">
+                      <summary className="text-sm cursor-pointer text-muted-foreground">
+                        Modo rápido (job con log)
+                      </summary>
+                      <div className="mt-3">
+                        <GenericStagePanel
+                          stageNum={activeStage}
+                          stageTitle={activeMeta.description}
+                          selectedPeriod={selectedPeriod}
+                          options={stageOptions}
+                          isEmailStage={activeMeta.is_email_stage}
+                          disabled={periodBusy}
+                          onStarted={handleJobStarted}
+                          onError={(msg) => push(msg, "error")}
+                          baseUrl={baseUrl}
+                          apiKey={apiKey}
+                        />
+                      </div>
+                    </details>
+                  </>
                 )}
                 {activeStage !== 0 && activeMeta && !activeMeta.enabled_for_api && (
                   <p className="text-sm text-muted-foreground">

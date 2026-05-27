@@ -21,6 +21,14 @@ Sistema para gestionar el flujo mensual de boletas de honorarios, con:
 - Tests base de API pasando.
 - Frontend web (React + Vite) en `frontend/` con vista **Operación** (pipeline 0–10 vía API).
 
+### CLI siempre vigente (independiente de la web)
+
+Los scripts en `etapas/` y `main.py` **no dependen** del frontend ni de uvicorn.
+La web es un cliente opcional; la consola sigue siendo la vía oficial para informática.
+
+Reglas y checklist: [`docs/CLI_FIRST.md`](docs/CLI_FIRST.md)  
+Tests de regresión: `pytest tests/test_cli_entrypoints.py`
+
 ---
 
 ## Arquitectura (resumen)
@@ -134,7 +142,7 @@ curl -X GET "http://127.0.0.1:8000/periods" \
 4. Abre en el navegador: **http://localhost:5173**
 
    - **Dashboard**, **Período**, **Boletas**, **Docentes**, **Runs**: lectura vía API.
-   - **Operación**: ejecutar pasos 0–10 del pipeline (misma lógica que consola con `--yes`).
+   - **Operación**: ejecutar pasos 0–10 del pipeline. Paso 1: **envío supervisado** (WebSocket, confirmación por correo) o modo rápido (job + log).
    - **Configuración**: URL de la API (por defecto `http://127.0.0.1:8000`) y `x-api-key` (debe coincidir con `BH_API_KEY` del `.env`).
 
 El período por defecto en Operación es **Abril 2026** (mes cerrado de referencia).
@@ -163,14 +171,30 @@ npm run preview
 - `GET /runs`
 - `GET /runs/{run_id}/stages`
 - `GET /stats/year/{year}`
+- `POST /operations/interactive/stages/{1|2|3|4}/sessions` — sesiones supervisadas (correos / extracción / revisión / XML→Excel)
+- `WS /operations/interactive/sessions/{id}/stream?api_key=…` — eventos y respuestas en vivo
 
-Contrato detallado: `API_CONTRACT.md`
+Contrato detallado: `API_CONTRACT.md` · CLI-first: `docs/CLI_FIRST.md`
 
 ---
 
 ## Calidad y validación
 
-Tests base API:
+La CI ejecuta compilación, migraciones Alembic y esta batería (sin Outlook ni envío de correos):
+
+```bash
+python -m pytest -q \
+  tests/api/test_api_endpoints.py \
+  tests/test_cli_entrypoints.py \
+  tests/test_bridged_stages.py \
+  tests/test_interaction_adapter.py \
+  tests/test_stage_commands.py \
+  tests/test_stage5_stage7_service.py \
+  tests/test_interactive_validation.py \
+  tests/test_stage10_progress.py
+```
+
+Tests base API únicamente:
 
 ```bash
 python -m pytest -q tests/api/test_api_endpoints.py

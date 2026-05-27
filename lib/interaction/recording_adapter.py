@@ -1,0 +1,59 @@
+"""Envuelve un adaptador y persiste eventos en JSONL."""
+from __future__ import annotations
+
+import json
+import os
+from datetime import UTC, datetime
+from typing import Any
+
+from interaction.port import InteractionPort, PromptRequest, PromptResponse
+
+
+class RecordingAdapter(InteractionPort):
+    def __init__(self, inner: InteractionPort, events_path: str) -> None:
+        self._inner = inner
+        self._path = events_path
+        os.makedirs(os.path.dirname(events_path), exist_ok=True)
+
+    def _write(self, record: dict[str, Any]) -> None:
+        record["ts"] = datetime.now(UTC).isoformat()
+        with open(self._path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def log(self, message: str, *, level: str = "info") -> None:
+        self._write({"type": "log", "level": level, "message": message})
+        self._inner.log(message, level=level)
+
+    def progress(self, current: int, total: int, *, label: str = "") -> None:
+        self._write({"type": "progress", "current": current, "total": total, "label": label})
+        self._inner.progress(current, total, label=label)
+
+    def table(self, title: str, rows: list[tuple[str, str]]) -> None:
+        self._write({"type": "table", "title": title, "rows": rows})
+        self._inner.table(title, rows)
+
+    def emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        self._write({"type": event_type, "payload": payload})
+        self._inner.emit(event_type, payload)
+
+    def ask(self, request: PromptRequest) -> PromptResponse:
+        self._write(
+            {
+                "type": "prompt.request",
+                "prompt_id": request.prompt_id,
+                "kind": request.kind.value,
+                "title": request.title,
+                "message": request.message,
+                "payload": request.payload,
+            }
+        )
+        resp = self._inner.ask(request)
+        self._write(
+            {
+                "type": "prompt.response",
+                "prompt_id": resp.prompt_id,
+                "action": resp.action,
+                "value": resp.value,
+            }
+        )
+        return resp

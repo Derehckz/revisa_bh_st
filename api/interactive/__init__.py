@@ -1,0 +1,1 @@
+"""Sesiones interactivas supervisadas (WebSocket)."""
