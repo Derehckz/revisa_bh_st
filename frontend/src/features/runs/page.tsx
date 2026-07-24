@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { ErrorState } from "@/shared/ui/error-state";
 import { Input } from "@/shared/ui/input";
+import { PageHeader } from "@/shared/ui/page-header";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 export function RunsPage() {
@@ -43,8 +44,11 @@ export function RunsPage() {
   }, [runs.data]);
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Runs y auditoría</h1>
+    <div className="space-y-6">
+      <PageHeader
+        title="Runs"
+        description="Historial de ejecuciones y detalle por etapa."
+      />
       {runs.isError && (
         <ErrorState
           title="No pudimos cargar runs"
@@ -53,10 +57,30 @@ export function RunsPage() {
         />
       )}
       <div className="grid gap-3 md:grid-cols-4">
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total runs</p><p className="text-xl font-semibold">{kpis.total}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">OK</p><p className="text-xl font-semibold text-green-600">{kpis.ok}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">ERROR</p><p className="text-xl font-semibold text-red-600">{kpis.error}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">RUNNING</p><p className="text-xl font-semibold">{kpis.running}</p></CardContent></Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Total</p>
+            <p className="mt-1 text-xl font-semibold tracking-tight tabular-nums">{kpis.total}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">OK</p>
+            <p className="mt-1 text-xl font-semibold tracking-tight tabular-nums text-success">{kpis.ok}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Error</p>
+            <p className="mt-1 text-xl font-semibold tracking-tight tabular-nums text-danger">{kpis.error}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">En curso</p>
+            <p className="mt-1 text-xl font-semibold tracking-tight tabular-nums">{kpis.running}</p>
+          </CardContent>
+        </Card>
       </div>
       <Card>
         <CardHeader className="space-y-2">

@@ -6,6 +6,12 @@ export type Period = {
   status: string;
 };
 
+export type DataFreshness = {
+  status: "ok" | "degraded" | "unknown" | string;
+  message: string;
+  details?: Record<string, unknown> | null;
+};
+
 export type PeriodSummary = {
   period: {
     id: number;
@@ -26,6 +32,7 @@ export type PeriodSummary = {
     emails_enviados: number;
     emails_error: number;
   };
+  data_freshness?: DataFreshness | null;
 };
 
 export type BoletaItem = {
@@ -203,6 +210,25 @@ export type DocenteProfileResponse = {
     boletas: number;
     monto_total: number;
   }>;
+  email_summary: {
+    total: number;
+    enviados: number;
+    error: number;
+    pendientes: number;
+    ultimo_envio: string | null;
+    tipos: Record<string, number>;
+  };
+  recent_emails: Array<{
+    id: number;
+    tipo_envio: string;
+    to_email: string;
+    cc_email: string | null;
+    subject: string | null;
+    estado: string;
+    error_detalle: string | null;
+    periodo_label: string | null;
+    sent_at: string | null;
+  }>;
 };
 
 export type DocenteMetricsResponse = {
@@ -215,6 +241,31 @@ export type DocenteMetricsResponse = {
     monto_total: number;
     monto_promedio: number;
   };
+};
+
+export type DocenteEmailsResponse = {
+  docente: DocenteItem;
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    returned: number;
+  };
+  filters: {
+    tipo?: string | null;
+    estado?: string | null;
+  };
+  data: Array<{
+    id: number;
+    tipo_envio: string;
+    to_email: string;
+    cc_email: string | null;
+    subject: string | null;
+    estado: string;
+    error_detalle: string | null;
+    periodo_label: string | null;
+    sent_at: string | null;
+  }>;
 };
 
 export type PipelineStageMeta = {
@@ -305,6 +356,60 @@ export type PeriodKpis = {
   read_error?: string;
 };
 
+export type ExcelAvanceMailCounts = {
+  enviado: number;
+  omitido: number;
+  error: number;
+  pendiente: number;
+  otro: number;
+};
+
+export type ExcelAvanceRow = {
+  row: number;
+  name: string;
+  sede: string;
+  email: string;
+  estado_recepcion: string;
+  correo_enviado: string;
+  correo_clase: string;
+  recordatorios: string;
+  archivo_xml: string;
+  observaciones_xml: string;
+  xml_clase: string;
+  monto: string;
+};
+
+export type ExcelAvanceResponse = {
+  year: number | string;
+  month: string;
+  month_dir: string;
+  solicitud_path: string;
+  solicitud_exists: boolean;
+  sheets: string[];
+  solicitud_sheet: string | null;
+  total_rows: number;
+  recepcion: {
+    recibido: number;
+    recibido_con_error: number;
+    no_recibido: number;
+    pendiente: number;
+    otro: number;
+  };
+  correo_solicitud: ExcelAvanceMailCounts;
+  recordatorios: { con_recordatorio: number; total_envios: number };
+  xml_extract: { ok: number; observacion: number; pendiente: number; con_archivo: number };
+  archivos_mes: { xml: number; pdf: number };
+  pagos: ExcelAvanceMailCounts & {
+    sheet_exists: boolean;
+    total_rows: number;
+    read_error?: string;
+  };
+  rows: ExcelAvanceRow[];
+  rows_truncated: boolean;
+  read_error?: string | null;
+  mtime?: string | null;
+};
+
 export type Step0OptionsResponse = {
   year: number;
   month: string;
@@ -324,6 +429,18 @@ export type Step0OptionsResponse = {
   is_email_stage?: boolean;
   guide?: StageGuide;
   choices?: InteractiveChoices;
+  outlook_health?: OutlookHealth | null;
+};
+
+export type OutlookHealth = {
+  ready: boolean;
+  process_running: boolean;
+  exe_found: boolean;
+  com_ok?: boolean | null;
+  com_error?: string | null;
+  can_auto_launch: boolean;
+  message: string;
+  required_for_stages?: number[];
 };
 
 export type PeriodOverviewStage = PipelineStageMeta & {
@@ -353,12 +470,19 @@ export type PeriodRecommendation = {
   action_label?: string;
 };
 
+export type SyncStatus = {
+  status: "ok" | "degraded" | "unknown";
+  message: string;
+  details?: Record<string, unknown>;
+};
+
 export type PeriodOverviewResponse = {
-  period: { year: number; month: string };
+  period: { year: number; month: string; status?: string | null };
   kpis: PeriodKpis;
   stages: PeriodOverviewStage[];
   running_job: { id: string; stage_num?: number; type?: string } | null;
   outbox_stats: Record<string, number>;
+  sync_status?: SyncStatus;
   recommendation?: PeriodRecommendation;
 };
 

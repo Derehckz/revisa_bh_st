@@ -1,8 +1,16 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  darkMode: "class",
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["Instrument Sans", "SF Pro Text", "Segoe UI", "ui-sans-serif", "sans-serif"],
+        display: ["Instrument Sans", "SF Pro Display", "Segoe UI", "ui-sans-serif", "sans-serif"],
+      },
+      fontSize: {
+        "2xs": ["0.6875rem", { lineHeight: "1rem", letterSpacing: "0.04em" }],
+      },
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
@@ -27,10 +35,11 @@ export default {
         sm: "var(--radius-sm)",
       },
       boxShadow: {
-        card: "0 1px 2px rgba(16,24,40,0.06), 0 1px 3px rgba(16,24,40,0.1)",
+        xs: "var(--shadow-xs)",
+        card: "var(--shadow-sm)",
+        elevated: "var(--shadow-md)",
       },
     },
   },
   plugins: [],
 };
-

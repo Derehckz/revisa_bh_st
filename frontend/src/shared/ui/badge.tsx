@@ -5,9 +5,9 @@ type Tone = "default" | "success" | "warning" | "danger";
 
 const tones: Record<Tone, string> = {
   default: "bg-muted text-foreground",
-  success: "bg-green-100 text-green-800",
-  warning: "bg-amber-100 text-amber-800",
-  danger: "bg-red-100 text-red-800",
+  success: "bg-success/12 text-success",
+  warning: "bg-warning/12 text-warning",
+  danger: "bg-danger/12 text-danger",
 };
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
@@ -17,7 +17,11 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 export function Badge({ className, tone = "default", ...props }: BadgeProps) {
   return (
     <span
-      className={cn("inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold", tones[tone], className)}
+      className={cn(
+        "inline-flex items-center rounded-md px-2 py-0.5 text-2xs font-semibold tracking-wide",
+        tones[tone],
+        className
+      )}
       {...props}
     />
   );

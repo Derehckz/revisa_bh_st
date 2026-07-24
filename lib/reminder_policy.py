@@ -5,9 +5,6 @@ from typing import Any
 
 import pandas as pd
 
-MAX_RECORDATORIOS_POR_PERIODO = 2
-
-
 def parse_recordatorio_count(value: Any) -> int:
     try:
         if pd.isna(value):
@@ -29,15 +26,10 @@ def indices_recordatorio(
     *,
     force_resend: bool,
 ) -> pd.Index:
-    """Filas elegibles para recordatorio según estado NO RECIBIDO y tope de rondas."""
+    """Filas elegibles para recordatorio según estado NO RECIBIDO."""
     estado_col = _estado_norm(df[columna_estado])
-    rec_count = df[columna_recordatorios].apply(parse_recordatorio_count)
-    if force_resend:
-        return df[estado_col.str.contains(r"no\s*recibido", na=False)].index
-    return df[
-        estado_col.str.contains(r"no\s*recibido", na=False)
-        & (rec_count < MAX_RECORDATORIOS_POR_PERIODO)
-    ].index
+    _ = force_resend  # compat: mantener firma pública aunque ya no hay tope
+    return df[estado_col.str.contains(r"no\s*recibido", na=False)].index
 
 
 def resumen_recordatorios(
@@ -45,12 +37,14 @@ def resumen_recordatorios(
     columna_estado: str,
     columna_recordatorios: str,
 ) -> dict[str, int]:
-    """Conteos para tabla de consola: candidatos #1, #2, bloqueados por tope."""
+    """Conteos para tabla de consola de recordatorios."""
     estado_col = _estado_norm(df[columna_estado])
     rec_count = df[columna_recordatorios].apply(parse_recordatorio_count)
     no_recibido_mask = estado_col.str.contains(r"no\s*recibido", na=False)
+    cand_1 = int((no_recibido_mask & (rec_count == 0)).sum())
+    cand_reiterados = int((no_recibido_mask & (rec_count >= 1)).sum())
     return {
-        "cand_1": int((no_recibido_mask & (rec_count == 0)).sum()),
-        "cand_2": int((no_recibido_mask & (rec_count == 1)).sum()),
-        "bloqueados": int((no_recibido_mask & (rec_count >= MAX_RECORDATORIOS_POR_PERIODO)).sum()),
+        "cand_1": cand_1,
+        "cand_reiterados": cand_reiterados,
+        "total_elegibles": cand_1 + cand_reiterados,
     }

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { ErrorState } from "@/shared/ui/error-state";
 import { Badge } from "@/shared/ui/badge";
+import { PageHeader } from "@/shared/ui/page-header";
 import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { toCurrency } from "@/shared/lib/utils";
@@ -48,50 +49,46 @@ export function DashboardPage() {
   const cards = [
     {
       icon: Receipt,
-      label: "Boletas mes actual",
+      label: "Boletas del mes",
       value: periodSummary.data?.metrics.total_boletas ?? 0,
       subtitle: month && year ? `${month} ${year}` : "Sin período",
-      tone: "border-blue-500/30 bg-blue-500/5",
     },
     {
       icon: Mail,
       label: "Cobertura XML",
       value: `${periodSummary.data?.metrics.xml_coverage_pct ?? 0}%`,
       subtitle: "Recepción mensual",
-      tone: "border-emerald-500/30 bg-emerald-500/5",
     },
     {
       icon: Activity,
       label: "Runs recientes",
       value: runs.data?.data.length ?? 0,
-      subtitle: "Últimos 20 runs",
-      tone: "border-violet-500/30 bg-violet-500/5",
+      subtitle: "Últimos 20",
     },
     {
       icon: FileText,
-      label: "Boletas año",
+      label: "Boletas del año",
       value: yearStats.data?.totals.boletas ?? 0,
       subtitle: year ? `Año ${year}` : "Sin año",
-      tone: "border-cyan-500/30 bg-cyan-500/5",
     },
   ];
   const monthlyHealth = [
-    { label: "✅ Recibidas", value: periodSummary.data?.metrics.recibidos ?? 0, icon: CheckCircle2, tone: "text-emerald-600" },
-    { label: "⚠️ Con error", value: periodSummary.data?.metrics.recibidos_con_error ?? 0, icon: AlertTriangle, tone: "text-amber-600" },
-    { label: "❌ No recibidas", value: periodSummary.data?.metrics.no_recibidos ?? 0, icon: Clock3, tone: "text-rose-600" },
+    { label: "Recibidas", value: periodSummary.data?.metrics.recibidos ?? 0, icon: CheckCircle2, tone: "text-success" },
+    { label: "Con error", value: periodSummary.data?.metrics.recibidos_con_error ?? 0, icon: AlertTriangle, tone: "text-warning" },
+    { label: "No recibidas", value: periodSummary.data?.metrics.no_recibidos ?? 0, icon: Clock3, tone: "text-danger" },
   ];
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold">📊 Dashboard Ejecutivo</h1>
-      <Card>
-        <CardHeader>
-          <CardTitle>🗓️ Período en foco</CardTitle>
-        </CardHeader>
-        <CardContent>
+    <div className="space-y-6">
+      <PageHeader
+        title="Dashboard"
+        description="Resumen del período en foco y salud operativa."
+        actions={
           <Select
+            className="min-w-[180px]"
             value={selectedPeriod ? `${selectedPeriod.year}-${selectedPeriod.month_name}` : ""}
             onChange={(event) => setSelectedPeriodKey(event.target.value)}
+            aria-label="Período en foco"
           >
             {(periods.data || []).map((p) => (
               <option key={p.id} value={`${p.year}-${p.month_name}`}>
@@ -99,8 +96,21 @@ export function DashboardPage() {
               </option>
             ))}
           </Select>
-        </CardContent>
-      </Card>
+        }
+      />
+      {periodSummary.data?.data_freshness && periodSummary.data.data_freshness.status !== "ok" && (
+        <p
+          className={
+            "rounded-md border px-3 py-2 text-sm " +
+            (periodSummary.data.data_freshness.status === "degraded"
+              ? "border-warning/30 bg-warning/10 text-warning"
+              : "border-border bg-muted text-muted-foreground")
+          }
+          title={periodSummary.data.data_freshness.message}
+        >
+          Frescura: {periodSummary.data.data_freshness.message}
+        </p>
+      )}
       {(periods.isError || periodSummary.isError || periodInsights.isError || yearStats.isError || runs.isError) && (
         <ErrorState
           title="No pudimos cargar datos del dashboard"
@@ -128,18 +138,18 @@ export function DashboardPage() {
             transition={{ delay: idx * 0.04 }}
             whileHover={{ y: -2 }}
           >
-          <Card className={`transition-shadow hover:shadow-md ${c.tone}`}>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle>{c.label}</CardTitle>
-              <c.icon size={16} className="text-muted-foreground" />
+          <Card className="transition-shadow hover:shadow-card">
+            <CardHeader className="flex flex-row items-center justify-between pb-1">
+              <CardTitle className="text-muted-foreground">{c.label}</CardTitle>
+              <c.icon size={16} strokeWidth={1.75} className="text-muted-foreground" />
             </CardHeader>
-            <CardContent className="text-2xl font-semibold">
+            <CardContent className="text-[1.75rem] font-semibold tracking-tight tabular-nums">
               {(periods.isLoading || runs.isLoading || periodSummary.isLoading || yearStats.isLoading) ? (
                 <Skeleton className="h-8 w-16" />
               ) : (
                 c.value
               )}
-              <p className="mt-1 text-xs font-normal text-muted-foreground">{c.subtitle}</p>
+              <p className="mt-1 text-xs font-normal tracking-normal text-muted-foreground">{c.subtitle}</p>
             </CardContent>
           </Card>
           </motion.div>
@@ -149,7 +159,7 @@ export function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>🧭 Estado mensual</CardTitle>
+            <CardTitle>Estado mensual</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-3">
             {monthlyHealth.map((item) => (
@@ -165,7 +175,7 @@ export function DashboardPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>💰 Monto del período</CardTitle>
+            <CardTitle>Monto del período</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <p className="text-xs text-muted-foreground">Total del período activo</p>
@@ -185,7 +195,7 @@ export function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>🕒 Actividad reciente</CardTitle>
+          <CardTitle>Actividad reciente</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
@@ -201,7 +211,7 @@ export function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>📦 Acumulado año a la fecha (YTD)</CardTitle>
+          <CardTitle>Acumulado año a la fecha</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-5">
           <div className="rounded-md border border-border p-3">
@@ -229,7 +239,7 @@ export function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>📈 Tendencia anual (boletas)</CardTitle>
+          <CardTitle>Tendencia anual</CardTitle>
         </CardHeader>
         <CardContent className="h-72">
           {yearStats.isLoading && <Skeleton className="h-full w-full" />}
@@ -258,7 +268,7 @@ export function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>🏢 Distribución por sede (período activo)</CardTitle>
+          <CardTitle>Distribución por sede</CardTitle>
         </CardHeader>
         <CardContent className="h-72">
           {periodInsights.isLoading && <Skeleton className="h-full w-full" />}
@@ -281,7 +291,7 @@ export function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>👥 Top docentes del período</CardTitle>
+          <CardTitle>Top docentes</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {(periodInsights.data?.top_docentes || []).slice(0, 8).map((item) => (

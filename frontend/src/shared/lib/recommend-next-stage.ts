@@ -1,7 +1,24 @@
-import type { PeriodOverviewResponse, PeriodRecommendation } from "@/shared/api/types";
+import type { Period, PeriodOverviewResponse, PeriodRecommendation } from "@/shared/api/types";
+import { isPeriodClosed } from "@/shared/lib/period-operation-guard";
+
+function isClosedOverviewStatus(status?: string | null): boolean {
+  return (status ?? "").trim().toLowerCase().includes("cerrad");
+}
 
 /** Fallback si la API aún no envía `recommendation` (uvicorn viejo). */
 export function recommendFromOverview(overview: PeriodOverviewResponse): PeriodRecommendation {
+  const periodStatus = overview.period?.status;
+  if (isClosedOverviewStatus(periodStatus)) {
+    const label = `${overview.period.month} ${overview.period.year}`;
+    return {
+      kind: "review",
+      stage_num: null,
+      title: "Período cerrado",
+      message: `El período ${label} está cerrado en BD. La API no permite jobs ni sesiones. Cambia a un mes abierto o usa la consola.`,
+      action_label: "Cambiar período",
+    };
+  }
+
   if (overview.recommendation) return overview.recommendation;
 
   const { stages, kpis, running_job } = overview;
@@ -68,4 +85,23 @@ export function recommendFromOverview(overview: PeriodOverviewResponse): PeriodR
     message: "Pasos API con última ejecución OK.",
     action_label: "Ver paso 10",
   };
+}
+
+/** Combina recomendación API con estado del período seleccionado en el toolbar. */
+export function recommendForOperation(
+  overview: PeriodOverviewResponse | undefined,
+  selectedPeriod?: Period
+): PeriodRecommendation | null {
+  if (!overview) return null;
+  if (selectedPeriod && isPeriodClosed(selectedPeriod)) {
+    const label = `${selectedPeriod.month_name} ${selectedPeriod.year}`;
+    return {
+      kind: "review",
+      stage_num: null,
+      title: "Período cerrado",
+      message: `Has seleccionado ${label}, que está cerrado. Cambia el mes arriba antes de ejecutar pasos.`,
+      action_label: "Cambiar período",
+    };
+  }
+  return recommendFromOverview(overview);
 }

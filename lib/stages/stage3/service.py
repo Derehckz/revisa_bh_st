@@ -17,6 +17,7 @@ from interaction.exceptions import SessionCancelled
 from interaction.port import InteractionPort
 from stages.context import Stage3Context
 from stages.stage3 import revision_core as core
+from stages.streamlined import confirm_unless_streamlined
 
 RAIZ = core.RAIZ
 
@@ -32,6 +33,14 @@ class Stage3Service:
             return {"ok": False}
 
         ruta_mes = os.path.join(RAIZ, año, mes)
+        if ctx.month_dir:
+            candidate = ctx.month_dir
+            if not os.path.isabs(candidate):
+                candidate = os.path.join(RAIZ, candidate)
+            ruta_mes = os.path.abspath(candidate)
+            if not os.path.isdir(ruta_mes):
+                ui.log(f"Carpeta no existe: {ruta_mes}", level="error")
+                return {"ok": False}
         mes_num = config.MESES_ES.index(mes) + 1 if mes in config.MESES_ES else 0
 
         ruta_logs = os.path.join(ruta_mes, "logs_revision")
@@ -41,9 +50,10 @@ class Stage3Service:
         )
         utils.configurar_logging(ruta_log_file)
 
-        ruta_excel = os.path.join(ruta_mes, "Solicitud.xlsx")
+        excel_name = ctx.excel_file or "Solicitud.xlsx"
+        ruta_excel = excel_name if os.path.isabs(excel_name) else os.path.join(ruta_mes, excel_name)
         if not os.path.isfile(ruta_excel):
-            ui.log(f"No se encontró Solicitud.xlsx en {ruta_mes}", level="error")
+            ui.log(f"No se encontró Excel: {ruta_excel}", level="error")
             return {"ok": False}
 
         ruta_bd = os.path.join(config.RAIZ, "BD-DOCENTES.xlsx")
@@ -77,7 +87,9 @@ class Stage3Service:
         )
         ui.emit("scan.ready", {"xml_files": xml_count, "month_dir": ruta_mes})
 
-        if not ui.confirm_yes_no(
+        if not confirm_unless_streamlined(
+            ui,
+            ctx.streamlined,
             "Continuar",
             "¿Validar recepción comparando planilla con PDF/XML del mes?",
             default=False,
@@ -120,10 +132,12 @@ class Stage3Service:
             ui.log("Validación estricta: abortando.", level="error")
             return {"ok": False}
 
-        if ctx.supervised and not ui.confirm_yes_no(
+        if ctx.supervised and not confirm_unless_streamlined(
+            ui,
+            ctx.streamlined,
             "Procesar filas",
             f"¿Procesar {len(df)} filas de la hoja «{hoja}»?",
-            default=False,
+            default=True,
         ):
             return {"ok": False, "cancelled": True}
 
@@ -141,6 +155,15 @@ class Stage3Service:
                 mes_nombre=mes,
             )
         for _, fila in df_actualizado.iterrows():
+            obs_recepcion = str(fila.get("Observaciones", "")).strip() or None
+            descartes = str(fila.get("Observacion_Descartes", "")).strip()
+            if descartes:
+                prefijo = "Boletas no consideradas: "
+                obs_recepcion = (
+                    f"{obs_recepcion} | {prefijo}{descartes}"
+                    if obs_recepcion
+                    else f"{prefijo}{descartes}"
+                )
             boleta_repository.upsert_boleta_recepcion(
                 periodo_id=periodo_id,
                 boleta_key=build_boleta_key(fila.to_dict()),
@@ -154,7 +177,7 @@ class Stage3Service:
                 if "RUT RAZON" in df_actualizado.columns
                 else None,
                 estado_recepcion=str(fila.get("Estado_Recepcion", "")).strip() or None,
-                observaciones_recepcion=str(fila.get("Observaciones", "")).strip() or None,
+                observaciones_recepcion=obs_recepcion,
                 glosa=str(fila.get("GLOSA", "")).strip()
                 if "GLOSA" in df_actualizado.columns
                 else None,
@@ -176,7 +199,9 @@ class Stage3Service:
         ui.log(f"Reporte: {ruta_reporte}", level="success")
         ui.emit("report.written", {"path": ruta_reporte})
 
-        if ctx.supervised and not ui.confirm_yes_no(
+        if ctx.supervised and not confirm_unless_streamlined(
+            ui,
+            ctx.streamlined,
             "Guardar Excel",
             "¿Guardar los cambios en Solicitud.xlsx?",
             default=True,
@@ -186,6 +211,7 @@ class Stage3Service:
             ui.emit("session.summary", result)
             return result
 
+        ui.log("Guardando Solicitud.xlsx…", level="info")
         saved = core.guardar_excel(df_actualizado, ruta_excel, hoja, ui)
         result = {
             "ok": saved,

@@ -7,6 +7,7 @@ from typing import Any
 
 import email_outbox
 import email_templates as templates
+import mail_ledger
 import idempotency_store
 import utils
 from interaction.exceptions import SessionCancelled
@@ -16,6 +17,17 @@ import bh_outlook_mail
 
 STAGE_ID = "script5.recepcion_send"
 EMAIL_COPIA = ""
+
+
+def _is_sent_marker(value: object) -> bool:
+    s = str(value or "").strip().lower()
+    if not s:
+        return False
+    return (
+        s in {"sí", "si"}
+        or "enviado" in s
+        or "correo enviado" in s
+    )
 
 
 def format_entero(valor) -> str:
@@ -90,7 +102,7 @@ def procesar_correos(
         if dispatch_only_indices is not None and ix not in dispatch_only_indices:
             continue
 
-        if str(fila.get("Correo_Recepcion_Enviado", "")).strip() == "Sí":
+        if _is_sent_marker(fila.get("Correo_Recepcion_Enviado", "")):
             stats["omitted"] += 1
             continue
 
@@ -107,7 +119,7 @@ def procesar_correos(
             continue
 
         item_key = build_item_key(año, mes, numero_boleta, correo)
-        if not modo_prueba and not force_resend and idempotency_store.was_success(STAGE_ID, item_key):
+        if not modo_prueba and not force_resend and mail_ledger.was_sent(STAGE_ID, item_key):
             df.at[idx, "Correo_Recepcion_Enviado"] = "⏭ Omitido por idempotencia"
             stats["omitted"] += 1
             continue
@@ -151,8 +163,6 @@ def procesar_correos(
                     stats["skipped"] += 1
                     continue
             stats["previewed"] += 1
-            if modo_prueba:
-                break
             continue
 
         if supervision_mode == SupervisionMode.PER_MAIL:
@@ -175,7 +185,7 @@ def procesar_correos(
         if dispatch_outbox is not None and ix in dispatch_outbox:
             ob_id = dispatch_outbox[ix]
         else:
-            ob_id = email_outbox.record_pending(
+            ob_id = mail_ledger.record_pending(
                 STAGE_ID, item_key, {"boleta": numero_boleta, "to": correo}
             )
         try:
@@ -191,14 +201,14 @@ def procesar_correos(
                 log_context=f"script5 boleta={numero_boleta}",
             ):
                 raise RuntimeError("No se pudo enviar tras reintentos COM")
-            email_outbox.mark_sent(ob_id)
+            mail_ledger.mark_outbox_sent(ob_id)
             df.at[idx, "Correo_Recepcion_Enviado"] = "Sí"
-            idempotency_store.mark_success(STAGE_ID, item_key, details=f"boleta={numero_boleta}")
+            mail_ledger.mark_sent(STAGE_ID, item_key, details=f"boleta={numero_boleta}")
             ui.log(f"Correo enviado a {correo} (boleta {numero_boleta})", level="success")
             stats["sent"] += 1
             time.sleep(1)
         except Exception as e:
-            email_outbox.mark_failed(ob_id, str(e))
+            mail_ledger.mark_outbox_failed(ob_id, str(e))
             df.at[idx, "Correo_Recepcion_Enviado"] = f"❌ Error: {e}"
             ui.log(f"Error enviando a {correo}: {e}", level="error")
             stats["failed"] += 1

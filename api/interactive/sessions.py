@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from settings import get_setting
+from period_lock import PeriodLock, PeriodLockError
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bh-interactive")
@@ -59,6 +60,16 @@ def create_session(stage_num: int, params: dict[str, Any]) -> dict[str, Any]:
     from interaction.session_bus import SessionBus
 
     bus = SessionBus(session_id)
+
+    period_lock = PeriodLock(year, month, script=f"interactive-{stage_num}")
+    try:
+        period_lock.acquire()
+    except PeriodLockError as exc:
+        raise ValueError(
+            f"No se puede iniciar la sesión: período {month} {year} está bloqueado "
+            f"por otra ejecución en curso ({exc})"
+        ) from exc
+
     session = {
         "id": session_id,
         "stage_num": stage_num,
@@ -70,6 +81,7 @@ def create_session(stage_num: int, params: dict[str, Any]) -> dict[str, Any]:
         "finished_at": None,
         "result": None,
         "bus": bus,
+        "lock": period_lock,
     }
     with _LOCK:
         for s in _SESSIONS.values():
@@ -79,11 +91,19 @@ def create_session(stage_num: int, params: dict[str, Any]) -> dict[str, Any]:
                 and s.get("month") == month
                 and s.get("stage_num") == stage_num
             ):
+                period_lock.release()
                 raise ValueError(
                     f"Ya hay sesión activa para paso {stage_num} en {month} {year} "
                     f"(id={s['id']})"
                 )
         _SESSIONS[session_id] = session
+    if stage_num == 1:
+        try:
+            import period_mail_config
+
+            period_mail_config.save_deadlines(year, month, params)
+        except Exception:
+            pass
     _persist_meta(_public_meta(session))
     return _public_meta(session)
 
@@ -140,7 +160,26 @@ def update_session_status(session_id: str, status: str, **extra: Any) -> None:
             s[k] = v
         if status in ("completed", "cancelled", "failed"):
             s["finished_at"] = datetime.now(UTC).isoformat()
+            _release_session_lock(s)
         _persist_meta(_public_meta(s))
+
+
+def _release_session_lock(session: dict[str, Any]) -> None:
+    lock = session.get("lock")
+    if lock is None:
+        return
+    try:
+        lock.release()
+    except Exception:
+        pass
+
+
+def release_session_lock_if_held(session_id: str) -> None:
+    """Libera el PeriodLock de la sesión si sigue retenido (usado en runner.finally)."""
+    with _LOCK:
+        s = _SESSIONS.get(session_id)
+    if s:
+        _release_session_lock(s)
 
 
 def submit_executor(fn) -> None:
@@ -154,5 +193,8 @@ def cancel_session(session_id: str) -> dict[str, Any]:
         raise KeyError(session_id)
     bus = s["bus"]
     bus.cancel()
-    update_session_status(session_id, "cancelled")
+    try:
+        update_session_status(session_id, "cancelled")
+    finally:
+        _release_session_lock(s)
     return _public_meta(s)

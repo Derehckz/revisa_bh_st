@@ -178,14 +178,28 @@ def _normalizar_estado_recepcion(value: object) -> str:
 
 
 def _build_arrastre_key(row: pd.Series) -> Tuple[str, str, str]:
-    emplid = str(row.get("EMPLID", "") or "").strip()
-    rut_razon = str(row.get("RUT RAZON", "") or "").strip()
+    """Clave legacy (incluye monto). Preferir `_person_arrastre_key` para el arrastre actual."""
+    emplid, rut_razon = _person_arrastre_key(row)
     monto_raw = row.get("CUS_TOT_HON", 0)
     try:
         monto = f"{float(monto_raw):.2f}"
     except (TypeError, ValueError):
         monto = "0.00"
     return emplid, rut_razon, monto
+
+
+def _person_arrastre_key(row: pd.Series) -> Tuple[str, str]:
+    """Docente + institución (IP/CFT); el monto no participa del match."""
+    emplid = str(row.get("EMPLID", "") or "").strip()
+    rut_razon = str(row.get("RUT RAZON", "") or "").strip()
+    return emplid, rut_razon
+
+
+def _monto_float(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _append_provisionado(glosa: object) -> str:
@@ -197,54 +211,170 @@ def _append_provisionado(glosa: object) -> str:
     return "PROVISIONADO"
 
 
-def aplicar_arrastre_provisionados(df_resultado: pd.DataFrame, mes: str, año: int) -> Tuple[pd.DataFrame, int]:
-    previo = resolver_mes_anio_anterior(mes, año)
-    if not previo:
-        utils.print_warning("No se pudo resolver período anterior; se omite arrastre de provisionados.")
-        return df_resultado, 0
-
-    prev_mes, prev_anio = previo
-    prev_solicitud_path = os.path.join(config.RAIZ, str(prev_anio), prev_mes, "Solicitud.xlsx")
-    if not os.path.isfile(prev_solicitud_path):
-        utils.print_info(f"No existe Solicitud.xlsx anterior ({prev_mes} {prev_anio}); sin arrastre provisionado.")
-        return df_resultado, 0
-
+def _period_is_closed(year: int, month: str) -> bool:
+    """True solo si la BD marca el período cerrado; si no hay fila/BD, no corta el lookback."""
     try:
-        df_prev = pd.read_excel(prev_solicitud_path, engine="openpyxl")
-    except Exception as exc:
-        utils.print_warning(f"No se pudo leer Solicitud anterior para arrastre provisionado: {exc}")
+        import period_policy
+
+        estado = period_policy.get_period_status(year, month)
+        if estado is None:
+            return False
+        return period_policy.is_closed_status(estado)
+    except Exception:
+        return False
+
+
+def _open_lookback_months(mes: str, año: int, *, max_months: int = 12) -> List[Tuple[str, int]]:
+    """Meses previos abiertos (ej. Julio → Junio, Mayo), detiene al encontrar un cerrado."""
+    out: List[Tuple[str, int]] = []
+    cur = resolver_mes_anio_anterior(mes, año)
+    while cur and len(out) < max_months:
+        prev_mes, prev_anio = cur
+        if _period_is_closed(prev_anio, prev_mes):
+            break
+        out.append((prev_mes, prev_anio))
+        cur = resolver_mes_anio_anterior(prev_mes, prev_anio)
+    return out
+
+
+def _glosa_para_mes_actual(template_row: pd.Series, mes: str) -> str:
+    location = template_row.get("LOCATION")
+    try:
+        loc_key = int(location) if location is not None and str(location).strip() != "" else None
+    except (TypeError, ValueError):
+        loc_key = None
+    if loc_key in MAPPING_INSTITUCIONES:
+        base = MAPPING_INSTITUCIONES[loc_key]["GLOSA_BASE"].format(MES=str(mes).upper())
+        return _append_provisionado(base)
+    return _append_provisionado(template_row.get("GLOSA"))
+
+
+def _fila_provisionado_desde_template(
+    template_row: pd.Series,
+    *,
+    mes: str,
+    año: int,
+    monto: float,
+) -> pd.Series:
+    new_row = template_row.copy()
+    if "MONTH" in new_row.index:
+        new_row["MONTH"] = str(mes).upper()
+    if "YEAR" in new_row.index:
+        new_row["YEAR"] = año
+    if "GLOSA" in new_row.index:
+        new_row["GLOSA"] = _glosa_para_mes_actual(template_row, mes)
+    new_row["CUS_TOT_HON"] = monto
+    if "Estado_Recepcion" in new_row.index:
+        new_row["Estado_Recepcion"] = ""
+    if "Correo Enviado" in new_row.index:
+        new_row["Correo Enviado"] = ""
+    return new_row
+
+
+def _es_glosa_provisionado(glosa: object) -> bool:
+    return "provisionado" in str(glosa or "").lower()
+
+
+def aplicar_arrastre_provisionados(df_resultado: pd.DataFrame, mes: str, año: int) -> Tuple[pd.DataFrame, int]:
+    """
+    Arrastra NO RECIBIDO de meses abiertos previos hacia el mes actual.
+
+    - Las filas del maestro del mes actual no se modifican (monto/glosa quedan normales).
+    - El arrastre crea filas aparte con GLOSA PROVISIONADO y el monto pendiente neto.
+    - Match/acumulación por EMPLID + RUT RAZON (IP/CFT), independiente del monto.
+    - Si un mes posterior recibió una fila ya marcada PROVISIONADO, esa deuda se descuenta
+      (ej. Mayo NO RECIBIDO pagado en Junio como PROVISIONADO RECIBIDO → no pasa a Julio).
+    - El lookback se detiene al llegar a un período cerrado.
+    """
+    lookback = _open_lookback_months(mes, año)
+    if not lookback:
+        utils.print_warning("No hay meses abiertos previos para arrastre de provisionados.")
         return df_resultado, 0
 
     required_cols = {"EMPLID", "RUT RAZON", "CUS_TOT_HON", "Estado_Recepcion"}
-    if not required_cols.issubset(set(df_prev.columns)):
-        utils.print_warning(
-            f"Solicitud anterior incompleta para arrastre (faltan: {sorted(required_cols - set(df_prev.columns))})."
+    # person_key -> saldo neto y plantilla (última fila relevante)
+    deudas: dict[Tuple[str, str], dict] = {}
+    meses_tocados: List[str] = []
+
+    # Cronológico: Mayo → Junio, para poder restar cobros posteriores.
+    for prev_mes, prev_anio in reversed(lookback):
+        prev_solicitud_path = os.path.join(config.RAIZ, str(prev_anio), prev_mes, "Solicitud.xlsx")
+        if not os.path.isfile(prev_solicitud_path):
+            utils.print_info(f"No existe Solicitud.xlsx en {prev_mes} {prev_anio}; se omite del arrastre.")
+            continue
+        try:
+            df_prev = pd.read_excel(prev_solicitud_path, engine="openpyxl")
+        except Exception as exc:
+            utils.print_warning(f"No se pudo leer Solicitud {prev_mes} {prev_anio}: {exc}")
+            continue
+        if not required_cols.issubset(set(df_prev.columns)):
+            utils.print_warning(
+                f"Solicitud {prev_mes} {prev_anio} incompleta para arrastre "
+                f"(faltan: {sorted(required_cols - set(df_prev.columns))})."
+            )
+            continue
+
+        mes_label = f"{prev_mes} {prev_anio}"
+        mes_usado = False
+        for _, row in df_prev.iterrows():
+            person_key = _person_arrastre_key(row)
+            if not person_key[0] or not person_key[1]:
+                continue
+            estado = _normalizar_estado_recepcion(row.get("Estado_Recepcion"))
+            monto = _monto_float(row.get("CUS_TOT_HON"))
+            if monto <= 0:
+                continue
+
+            entry = deudas.get(person_key)
+            if entry is None:
+                entry = {"monto": 0.0, "template": row}
+                deudas[person_key] = entry
+
+            if estado == "NO RECIBIDO":
+                entry["monto"] += monto
+                entry["template"] = row
+                mes_usado = True
+            elif estado == "RECIBIDO" and _es_glosa_provisionado(row.get("GLOSA")):
+                # Cobro de una provisión previa: baja el saldo pendiente.
+                entry["monto"] = max(0.0, entry["monto"] - monto)
+                mes_usado = True
+
+        if mes_usado:
+            meses_tocados.append(mes_label)
+
+    deudas = {k: v for k, v in deudas.items() if float(v["monto"]) > 0.009}
+    if not deudas:
+        utils.print_info(
+            "Sin saldo provisionado pendiente en meses abiertos previos; no se agregan filas."
         )
         return df_resultado, 0
 
-    pendientes_prev = df_prev[
-        df_prev["Estado_Recepcion"].map(_normalizar_estado_recepcion).eq("NO RECIBIDO")
-    ]
-    if pendientes_prev.empty:
-        utils.print_info(f"Sin pendientes NO RECIBIDO en {prev_mes} {prev_anio}; no se marcan provisionados.")
+    nuevas: List[pd.Series] = []
+    for person_key, entry in deudas.items():
+        debt = float(entry["monto"])
+        match_rows = [
+            row
+            for _, row in df_resultado.iterrows()
+            if _person_arrastre_key(row) == person_key
+        ]
+        template = match_rows[0] if match_rows else entry["template"]
+        nuevas.append(
+            _fila_provisionado_desde_template(template, mes=mes, año=año, monto=debt)
+        )
+
+    if not nuevas:
         return df_resultado, 0
 
-    keys_pendientes: Set[Tuple[str, str, str]] = {_build_arrastre_key(row) for _, row in pendientes_prev.iterrows()}
-    if not keys_pendientes:
-        return df_resultado, 0
-
-    tagged_count = 0
-    for idx, row in df_resultado.iterrows():
-        if _build_arrastre_key(row) in keys_pendientes:
-            new_glosa = _append_provisionado(row.get("GLOSA"))
-            if str(row.get("GLOSA", "") or "").strip() != new_glosa:
-                df_resultado.at[idx, "GLOSA"] = new_glosa
-                tagged_count += 1
-
-    utils.print_info(
-        f"Arrastre provisionado aplicado desde {prev_mes} {prev_anio}: {tagged_count} filas etiquetadas."
+    df_resultado = pd.concat(
+        [df_resultado, pd.DataFrame(nuevas)],
+        ignore_index=True,
     )
-    return df_resultado, tagged_count
+    origen = ", ".join(meses_tocados) if meses_tocados else "meses previos"
+    utils.print_info(
+        f"Arrastre provisionado desde [{origen}]: {len(nuevas)} filas PROVISIONADO aparte "
+        f"(maestro intacto; descuenta PROVISIONADO ya RECIBIDO en meses posteriores)."
+    )
+    return df_resultado, len(nuevas)
 
 def cargar_archivo(ruta: str, nombre: str) -> pd.DataFrame:
     """
@@ -396,6 +526,39 @@ def validar_mapping_institucion(df: pd.DataFrame) -> List[str]:
     return errores
 
 
+def sync_solicitud_a_db(ruta_solicitud: str, *, mes: str, año: int) -> dict:
+    """
+    Upsert de Solicitud.xlsx hacia PostgreSQL (misma lógica que import_excel_snapshot).
+    No debe tumbar el paso 0 si la BD falla: retorna stats con ok=False y error.
+    """
+    out = {
+        "ok": False,
+        "boletas_insertadas": 0,
+        "boletas_actualizadas": 0,
+        "errores": 0,
+        "error": None,
+    }
+    try:
+        from db.import_excel_snapshot import detect_solicitud_sheet, run_import
+
+        sheet = detect_solicitud_sheet(ruta_solicitud)
+        stats = run_import(
+            path=ruta_solicitud,
+            sheet_solicitud=sheet,
+            sheet_resumen="Resumen Boletas",
+            anio=int(año),
+            mes_nombre=str(mes).strip().capitalize(),
+        )
+        out["ok"] = True
+        out["boletas_insertadas"] = int(stats.get("boletas_insertadas") or 0)
+        out["boletas_actualizadas"] = int(stats.get("boletas_actualizadas") or 0)
+        out["errores"] = int(stats.get("errores") or 0)
+        return out
+    except Exception as exc:
+        out["error"] = str(exc)
+        return out
+
+
 def generar_solicitud(
     ruta_maestro: str,
     ruta_bd_docentes: str,
@@ -426,6 +589,9 @@ def generar_solicitud(
         "docentes_no_encontrados": 0,
         "nuevos_en_bd": 0,
         "provisionados_arrastrados": 0,
+        "db_sync_ok": False,
+        "db_boletas_insertadas": 0,
+        "db_boletas_actualizadas": 0,
         "errores": []
     }
     
@@ -619,6 +785,12 @@ def generar_solicitud(
     df_resultado, provisionados_arrastrados = aplicar_arrastre_provisionados(df_resultado, mes=mes, año=año)
     stats["provisionados_arrastrados"] = provisionados_arrastrados
 
+    # El maestro a veces trae MONTH numérico (7); la Solicitud siempre usa nombre en mayúsculas.
+    if "MONTH" in df_resultado.columns:
+        df_resultado["MONTH"] = str(mes).strip().upper()
+    if "YEAR" in df_resultado.columns:
+        df_resultado["YEAR"] = int(año)
+
     columnas_finales = [
         "EMPLID", "RUT_SIN_DV", "NAME", "EMPL_RCD", "HR_STATUS", "LOCATION",
         "RUT RAZON", "NOMBRE RAZON", "DireccionRazon",
@@ -661,6 +833,23 @@ def generar_solicitud(
             utils.atomic_excel_write(ruta_bd_docentes, _write_bd_docentes)
         utils.print_success(f"BD-DOCENTES.xlsx guardado en {ruta_bd_docentes}")
 
+        with utils.console.status("Sincronizando Solicitud.xlsx → PostgreSQL...", spinner="dots"):
+            db_sync = sync_solicitud_a_db(ruta_salida, mes=mes, año=año)
+        stats["db_sync_ok"] = bool(db_sync.get("ok"))
+        stats["db_boletas_insertadas"] = int(db_sync.get("boletas_insertadas") or 0)
+        stats["db_boletas_actualizadas"] = int(db_sync.get("boletas_actualizadas") or 0)
+        if db_sync.get("ok"):
+            utils.print_success(
+                "BD sincronizada: "
+                f"+{stats['db_boletas_insertadas']} insertadas, "
+                f"{stats['db_boletas_actualizadas']} actualizadas"
+                + (f", {db_sync.get('errores')} errores de fila" if db_sync.get("errores") else "")
+            )
+        else:
+            msg = f"No se pudo sincronizar Solicitud a BD: {db_sync.get('error')}"
+            stats["errores"].append(msg)
+            utils.print_warning(msg)
+
     except Exception as e:
         stats["errores"].append(f"Error al guardar: {e}")
         utils.print_error(f"Error al guardar: {e}")
@@ -675,6 +864,9 @@ def generar_solicitud(
         ("Nuevos agregados a BD", stats['nuevos_en_bd']),
         ("Provisionados arrastrados", stats['provisionados_arrastrados']),
         ("Filas en Solicitud.xlsx", stats['filas_resultado']),
+        ("Sync BD OK", "sí" if stats.get("db_sync_ok") else "no"),
+        ("Boletas BD insertadas", stats.get("db_boletas_insertadas", 0)),
+        ("Boletas BD actualizadas", stats.get("db_boletas_actualizadas", 0)),
     ])
     utils.print_list("ARCHIVOS GENERADOS:", [ruta_salida, ruta_bd_docentes])
 

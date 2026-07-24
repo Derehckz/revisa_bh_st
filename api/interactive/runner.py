@@ -15,7 +15,7 @@ from interaction.recording_adapter import RecordingAdapter
 from interaction.web_adapter import WebAdapter
 from api.interactive import sessions
 
-_BRIDGED_STAGES = {0, 6, 8, 9, 10}
+_BRIDGED_STAGES: set[int] = set()
 
 
 def _run_session(session_id: str, stage_num: int) -> None:
@@ -71,6 +71,45 @@ def _run_session(session_id: str, stage_num: int) -> None:
 
             ctx = Stage7Context.from_api_params(params)
             result = Stage7Service().run(ctx, ui)
+        elif stage_num == 0:
+            from settings import get_bool_setting
+
+            if get_bool_setting("BH_STAGE0_SERVICE", True):
+                from stages.context import Stage0Context
+                from stages.stage0.service import Stage0Service
+
+                ctx = Stage0Context.from_api_params(params)
+                result = Stage0Service().run(ctx, ui)
+            else:
+                from stages.bridged_args import BridgedContext
+                from stages.bridged_runner import run_bridged_stage
+
+                ctx = BridgedContext.from_api_params(0, params)
+                result = run_bridged_stage(ctx, ui)
+        elif stage_num == 6:
+            from stages.context import Stage6Context
+            from stages.stage6.service import Stage6Service
+
+            ctx = Stage6Context.from_api_params(params)
+            result = Stage6Service().run(ctx, ui)
+        elif stage_num == 8:
+            from stages.context import Stage8Context
+            from stages.stage8.service import Stage8Service
+
+            ctx = Stage8Context.from_api_params(params)
+            result = Stage8Service().run(ctx, ui)
+        elif stage_num == 9:
+            from stages.context import Stage9Context
+            from stages.stage9.service import Stage9Service
+
+            ctx = Stage9Context.from_api_params(params)
+            result = Stage9Service().run(ctx, ui)
+        elif stage_num == 10:
+            from stages.context import Stage10Context
+            from stages.stage10.service import Stage10Service
+
+            ctx = Stage10Context.from_api_params(params)
+            result = Stage10Service().run(ctx, ui)
         elif stage_num in _BRIDGED_STAGES:
             from stages.bridged_args import BridgedContext
             from stages.bridged_runner import run_bridged_stage
@@ -96,6 +135,8 @@ def _run_session(session_id: str, stage_num: int) -> None:
         bus.publish("session.failed", {"error": str(exc)})
         sessions.update_session_status(session_id, "failed", result={"error": str(exc)})
         ui.log(f"Error fatal: {exc}", level="error")
+    finally:
+        sessions.release_session_lock_if_held(session_id)
 
 
 def run_stage0_session(session_id: str) -> None:

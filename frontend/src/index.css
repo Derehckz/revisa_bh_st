@@ -2,49 +2,122 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  BH Design System — Apple-inspired
+  Claridad, jerarquía tipográfica, espacio generoso, cromo mínimo.
+*/
+
 :root {
-  --background: 220 23% 97%;
-  --foreground: 222 47% 11%;
+  /* Surfaces */
+  --background: 240 6% 96%;
+  --foreground: 240 6% 10%;
   --card: 0 0% 100%;
-  --muted: 220 20% 95%;
-  --muted-foreground: 217 16% 42%;
-  --border: 220 18% 88%;
-  --ring: 173 100% 25%;
-  --primary: 173 100% 25%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 172 100% 31%;
-  --accent: 10 87% 62%;
-  --success: 81 51% 48%;
-  --warning: 50 100% 50%;
-  --danger: 0 84% 60%;
-  --radius-lg: 0.8rem;
-  --radius-md: 0.6rem;
-  --radius-sm: 0.4rem;
+  --muted: 240 5% 93%;
+  --muted-foreground: 240 4% 42%;
+  --border: 240 6% 88%;
+  --ring: 211 100% 45%;
+
+  /* Brand (Apple blue as action accent) */
+  --primary: 211 100% 45%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 211 90% 40%;
+  --accent: 211 100% 45%;
+
+  /* Semantic */
+  --success: 142 70% 35%;
+  --warning: 38 92% 44%;
+  --danger: 0 72% 51%;
+
+  /* Geometry */
+  --radius-lg: 0.875rem;
+  --radius-md: 0.625rem;
+  --radius-sm: 0.4375rem;
+
+  /* Elevation */
+  --shadow-xs: 0 1px 0 rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+
+  /* Type */
+  --font-sans: "Instrument Sans", "SF Pro Text", "Segoe UI", ui-sans-serif, sans-serif;
+  --font-display: "Instrument Sans", "SF Pro Display", "Segoe UI", ui-sans-serif, sans-serif;
 }
 
 .dark {
-  --background: 222 47% 8%;
-  --foreground: 210 40% 98%;
-  --card: 222 40% 11%;
-  --muted: 217 33% 18%;
-  --muted-foreground: 215 20% 65%;
-  --border: 217 33% 22%;
-  --ring: 172 100% 31%;
-  --primary: 172 100% 31%;
-  --secondary: 172 100% 25%;
-  --accent: 10 87% 62%;
-  --success: 81 51% 48%;
-  --warning: 50 100% 50%;
+  --background: 240 6% 7%;
+  --foreground: 240 6% 96%;
+  --card: 240 5% 11%;
+  --muted: 240 5% 15%;
+  --muted-foreground: 240 5% 62%;
+  --border: 240 5% 18%;
+  --ring: 211 100% 55%;
+  --primary: 211 100% 55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 211 80% 48%;
+  --accent: 211 100% 55%;
+  --success: 142 60% 45%;
+  --warning: 38 92% 50%;
+  --danger: 0 72% 58%;
+  --shadow-xs: 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
-body {
-  @apply bg-background text-foreground antialiased;
-  margin: 0;
-  font-family: Inter, "Segoe UI", Arial, sans-serif;
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.47;
+    letter-spacing: -0.01em;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.18);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.025em;
+    font-weight: 600;
+  }
 }
 
-#root {
-  min-height: 100vh;
+@layer components {
+  .page-title {
+    @apply text-[1.75rem] font-semibold leading-tight tracking-tight text-foreground;
+  }
+
+  .page-subtitle {
+    @apply mt-1 max-w-2xl text-[0.9375rem] leading-snug text-muted-foreground;
+  }
+
+  .section-label {
+    @apply text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-muted-foreground;
+  }
+
+  .surface {
+    @apply rounded-lg border border-border bg-card;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .surface-elevated {
+    @apply rounded-lg border border-border bg-card;
+    box-shadow: var(--shadow-sm);
+  }
 }
 
 .skip-link {

@@ -10,6 +10,14 @@ from zoneinfo import ZoneInfo
 from typing import List
 import settings
 
+
+def _required_setting(name: str) -> str:
+    value = settings.get_setting(name, None)
+    if value is None or str(value).strip() == "":
+        raise RuntimeError(f"Falta variable obligatoria en .env: {name}")
+    return str(value)
+
+
 # Raíz del repositorio (padre de `lib/` donde vive este archivo)
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -27,10 +35,12 @@ MESES_ES: List[str] = [
 ]
 
 # --- Envío de correos (script 1) ---
-ULT_FECHA_RECEPCION: str = settings.get_setting("BH_ULT_FECHA_RECEPCION", "27 Mayo 2026")
-HORARIO_RECEPCION: str = settings.get_setting("BH_HORARIO_RECEPCION", "09:00")
-EMAIL_CONTABILIDAD: str = settings.get_setting("BH_EMAIL_CONTABILIDAD", "contabilidad@santotomas.cl")
-EMAIL_XML_1: str = settings.get_setting("BH_EMAIL_XML_1", "achocano@santotomas.cl")
+ULT_FECHA_RECEPCION: str = _required_setting("BH_ULT_FECHA_RECEPCION")
+HORARIO_RECEPCION: str = _required_setting("BH_HORARIO_RECEPCION")
+ULT_FECHA_RECORDATORIO: str = _required_setting("BH_ULT_FECHA_RECORDATORIO")
+HORARIO_RECORDATORIO: str = _required_setting("BH_HORARIO_RECORDATORIO")
+EMAIL_CONTABILIDAD: str = _required_setting("BH_EMAIL_CONTABILIDAD")
+EMAIL_XML_1: str = _required_setting("BH_EMAIL_XML_1")
 EMAIL_XML_2: str = settings.get_setting("BH_EMAIL_XML_2", "")
 
 # Ruta del PDF de ejemplo adjunto en correos de solicitud

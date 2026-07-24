@@ -34,13 +34,22 @@ def _load_module(mod_name: str, file_name: str):
     return mod
 
 
-def _parse_script1_parts(item_key: str) -> tuple[str, str, str, str]:
+def _parse_script1_parts(item_key: str) -> tuple[str, str, str, str, str | None, bool]:
+    """Devuelve (año, mes, rut_docente, email, rut_razon|None, provisionado)."""
     parts = item_key.split("|")
     if len(parts) >= 2 and parts[-1].startswith("r") and parts[-1][1:].isdigit():
         parts = parts[:-1]
-    if len(parts) != 4:
-        raise ValueError(f"item_key script1 inválido ({len(parts)} partes): {item_key!r}")
-    return str(parts[0]), str(parts[1]), str(parts[2]), str(parts[3])
+    provisionado = False
+    if parts and parts[-1] == "prov":
+        provisionado = True
+        parts = parts[:-1]
+    # Actual: año|mes|rut|rut_razon|email  (5)
+    # Legacy: año|mes|rut|email  (4)
+    if len(parts) == 5:
+        return str(parts[0]), str(parts[1]), str(parts[2]), str(parts[4]), str(parts[3]), provisionado
+    if len(parts) == 4:
+        return str(parts[0]), str(parts[1]), str(parts[2]), str(parts[3]), None, provisionado
+    raise ValueError(f"item_key script1 inválido ({len(parts)} partes): {item_key!r}")
 
 
 def _parse_script5_parts(item_key: str) -> tuple[str, str, str, str]:
@@ -56,9 +65,21 @@ def _script1_tipo_from_stage(stage: str) -> str:
     return "original"
 
 
-def _script1_find_idx(df: pd.DataFrame, año: str, mes: str, rut: str, email: str):
+def _script1_find_idx(
+    df: pd.DataFrame,
+    año: str,
+    mes: str,
+    rut: str,
+    email: str,
+    *,
+    rut_razon: str | None = None,
+    provisionado: bool = False,
+):
+    from stages.stage1.mail import es_glosa_provisionado
+
     mes_u = mes.upper()
     email_l = email.strip().lower()
+    rr_norm = utils.normalizar_rut_con_dv(rut_razon) if rut_razon else None
     for idx in df.index:
         try:
             y = str(int(float(df.at[idx, "YEAR"])))
@@ -67,8 +88,16 @@ def _script1_find_idx(df: pd.DataFrame, año: str, mes: str, rut: str, email: st
         m = str(df.at[idx, "MONTH"]).strip().upper()
         em = str(df.at[idx, "EMPLID"]).strip()
         eml = str(df.at[idx, "Email_Docente"]).strip().lower()
-        if y == str(año) and m == mes_u and em == str(rut).strip() and eml == email_l:
-            return idx
+        if not (y == str(año) and m == mes_u and em == str(rut).strip() and eml == email_l):
+            continue
+        glosa = df.at[idx, "GLOSA"] if "GLOSA" in df.columns else ""
+        if es_glosa_provisionado(glosa) != provisionado:
+            continue
+        if rr_norm is not None and "RUT RAZON" in df.columns:
+            row_rr = utils.normalizar_rut_con_dv(df.at[idx, "RUT RAZON"])
+            if row_rr != rr_norm:
+                continue
+        return idx
     return None
 
 
@@ -78,7 +107,7 @@ def _script1_save(ruta_excel: str, hoja: str, df: pd.DataFrame) -> None:
 
 
 def _dispatch_script1(*, ob_id: int, stage: str, item_key: str, dry_run: bool) -> str:
-    año, mes, rut, email = _parse_script1_parts(item_key)
+    año, mes, rut, email, rut_razon, provisionado = _parse_script1_parts(item_key)
     tipo = _script1_tipo_from_stage(stage)
     ruta_mes = os.path.join(config.RAIZ, año, mes)
     if not os.path.isdir(ruta_mes):
@@ -93,7 +122,9 @@ def _dispatch_script1(*, ob_id: int, stage: str, item_key: str, dry_run: bool) -
     xls = pd.ExcelFile(ruta_excel, engine="openpyxl")
     hoja = utils.pick_excel_sheet(xls.sheet_names)
     df = pd.read_excel(ruta_excel, sheet_name=hoja, engine="openpyxl")
-    idx = _script1_find_idx(df, año, mes, rut, email)
+    idx = _script1_find_idx(
+        df, año, mes, rut, email, rut_razon=rut_razon, provisionado=provisionado
+    )
     if idx is None:
         email_outbox.mark_failed(ob_id, "Fila no encontrada en Excel para item_key")
         return "failed"

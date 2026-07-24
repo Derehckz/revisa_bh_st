@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { ErrorState } from "@/shared/ui/error-state";
 import { Input } from "@/shared/ui/input";
+import { PageHeader } from "@/shared/ui/page-header";
 import { Pagination } from "@/shared/ui/pagination";
 import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
@@ -128,8 +129,11 @@ export function BoletasPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold">🧾 Tabla de boletas</h1>
+    <div className="space-y-6">
+      <PageHeader
+        title="Boletas"
+        description="Consulta, filtra y abre XML/PDF del período."
+      />
       {query.isError && (
         <ErrorState
           title="No pudimos cargar boletas"
@@ -139,7 +143,7 @@ export function BoletasPage() {
       )}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>🎛️ Filtros visuales</CardTitle>
+          <CardTitle>Filtros</CardTitle>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <SlidersHorizontal size={14} />
             <span>{debouncedQ ? "Búsqueda activa" : "Sin búsqueda"}</span>

@@ -1,7 +1,6 @@
-import { ArrowRight, Clock, PlayCircle, Wrench } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import type { PeriodRecommendation } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
-import { cn } from "@/shared/lib/utils";
 
 type Props = {
   recommendation: PeriodRecommendation;
@@ -10,22 +9,7 @@ type Props = {
   onGoToAvanzado: () => void;
 };
 
-const KIND_STYLE: Record<
-  PeriodRecommendation["kind"],
-  { border: string; bg: string; Icon: typeof PlayCircle }
-> = {
-  run: { border: "border-primary/40", bg: "bg-primary/5", Icon: PlayCircle },
-  wait: { border: "border-amber-300", bg: "bg-amber-50", Icon: Clock },
-  fix: { border: "border-amber-400", bg: "bg-amber-50", Icon: Wrench },
-  complete: { border: "border-green-300", bg: "bg-green-50", Icon: PlayCircle },
-  review: { border: "border-border", bg: "bg-muted/40", Icon: PlayCircle },
-  outbox: { border: "border-blue-300", bg: "bg-blue-50", Icon: Wrench },
-};
-
 export function NextStepCard({ recommendation, onGoToStage, onGoToSeguimiento, onGoToAvanzado }: Props) {
-  const style = KIND_STYLE[recommendation.kind];
-  const Icon = style.Icon;
-
   function handleAction() {
     if (recommendation.kind === "wait") {
       onGoToSeguimiento();
@@ -41,23 +25,18 @@ export function NextStepCard({ recommendation, onGoToStage, onGoToSeguimiento, o
   }
 
   return (
-    <div className={cn("rounded-lg border p-4", style.border, style.bg)}>
-      <div className="flex flex-wrap items-start gap-3">
-        <Icon className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden />
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Siguiente paso sugerido
-          </p>
-          <p className="font-semibold">{recommendation.title}</p>
-          <p className="text-sm text-muted-foreground">{recommendation.message}</p>
-        </div>
-        <Button type="button" onClick={handleAction} className="shrink-0">
-          <span className="inline-flex items-center gap-1">
-            {recommendation.action_label || "Continuar"}
-            <ArrowRight size={14} />
-          </span>
-        </Button>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
+      <div className="min-w-0">
+        <p className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Siguiente</p>
+        <p className="mt-0.5 text-sm font-semibold tracking-tight text-foreground">{recommendation.title}</p>
+        <p className="text-[0.8125rem] leading-snug text-muted-foreground line-clamp-2">
+          {recommendation.message}
+        </p>
       </div>
+      <Button type="button" size="sm" onClick={handleAction} className="shrink-0">
+        {recommendation.action_label || "Continuar"}
+        <ArrowRight size={14} strokeWidth={2} />
+      </Button>
     </div>
   );
 }

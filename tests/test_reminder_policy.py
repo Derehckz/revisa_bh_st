@@ -9,7 +9,7 @@ def test_parse_recordatorio_count():
     assert reminder_policy.parse_recordatorio_count(1.0) == 1
 
 
-def test_indices_recordatorio_respects_cap():
+def test_indices_recordatorio_without_cap():
     df = pd.DataFrame(
         {
             "Estado_Recepcion": ["NO RECIBIDO", "NO RECIBIDO", "NO RECIBIDO", "RECIBIDO"],
@@ -19,11 +19,11 @@ def test_indices_recordatorio_respects_cap():
     idx = reminder_policy.indices_recordatorio(
         df, "Estado_Recepcion", "Recordatorios Enviados", force_resend=False
     )
-    assert set(idx.tolist()) == {0, 1}
+    assert set(idx.tolist()) == {0, 1, 2}
     res = reminder_policy.resumen_recordatorios(df, "Estado_Recepcion", "Recordatorios Enviados")
     assert res["cand_1"] == 1
-    assert res["cand_2"] == 1
-    assert res["bloqueados"] == 1
+    assert res["cand_reiterados"] == 2
+    assert res["total_elegibles"] == 3
 
 
 def test_indices_recordatorio_force_resend():

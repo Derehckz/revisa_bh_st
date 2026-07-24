@@ -6,6 +6,7 @@ import { toCurrency } from "@/shared/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { ErrorState } from "@/shared/ui/error-state";
+import { PageHeader } from "@/shared/ui/page-header";
 import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -39,8 +40,25 @@ export function PeriodPage() {
   }, [summary.data]);
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold">📅 Vista de período</h1>
+    <div className="space-y-6">
+      <PageHeader
+        title="Período"
+        description="Indicadores y desglose del mes seleccionado."
+        actions={
+          <Select
+            className="min-w-[180px]"
+            value={selected ? `${selected.year}-${selected.month_name}` : ""}
+            onChange={(e) => setSelectedPeriodKey(e.target.value)}
+            aria-label="Período"
+          >
+            {(periods.data || []).map((p) => (
+              <option key={p.id} value={`${p.year}-${p.month_name}`}>
+                {p.month_name} {p.year}
+              </option>
+            ))}
+          </Select>
+        }
+      />
       {(periods.isError || summary.isError || insights.isError) && (
         <ErrorState
           title="No pudimos cargar el resumen del período"
@@ -52,63 +70,46 @@ export function PeriodPage() {
           }}
         />
       )}
-      <Card>
-        <CardHeader>
-          <CardTitle>🗂️ Período activo</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Select
-            value={selected ? `${selected.year}-${selected.month_name}` : ""}
-            onChange={(event) => setSelectedPeriodKey(event.target.value)}
-          >
-            {(periods.data || []).map((p) => (
-              <option key={p.id} value={`${p.year}-${p.month_name}`}>
-                {p.month_name} {p.year}
-              </option>
-            ))}
-          </Select>
-        </CardContent>
-      </Card>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {(summary.isLoading ? Array.from({ length: 5 }, (_, i) => ({ label: `loading-${i}`, value: 0 })) : breakdown).map((item, idx) => (
-          <Card key={idx} className="border-l-4 border-l-primary/50">
+          <Card key={idx}>
             <CardHeader>
-              <CardTitle>{summary.isLoading ? "⏳ Cargando..." : item.label}</CardTitle>
+              <CardTitle className="text-muted-foreground">{summary.isLoading ? "Cargando…" : item.label}</CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold">
+            <CardContent className="text-[1.75rem] font-semibold tracking-tight tabular-nums">
               {summary.isLoading ? <Skeleton className="h-8 w-12" /> : item.value}
             </CardContent>
           </Card>
         ))}
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <Card className="bg-emerald-500/5 border-emerald-500/30">
-          <CardHeader><CardTitle>💰 Monto total</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold">
+        <Card>
+          <CardHeader><CardTitle className="text-muted-foreground">Monto total</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tracking-tight tabular-nums">
             {insights.isLoading ? <Skeleton className="h-8 w-28" /> : toCurrency(insights.data?.kpis.monto_total)}
           </CardContent>
         </Card>
-        <Card className="bg-cyan-500/5 border-cyan-500/30">
-          <CardHeader><CardTitle>📊 Monto promedio</CardTitle></CardHeader>
+        <Card>
+          <CardHeader><CardTitle className="text-muted-foreground">Monto promedio</CardTitle></CardHeader>
           <CardContent className="text-xl font-semibold">
             {insights.isLoading ? <Skeleton className="h-8 w-28" /> : toCurrency(insights.data?.kpis.monto_promedio)}
           </CardContent>
         </Card>
-        <Card className="bg-violet-500/5 border-violet-500/30">
-          <CardHeader><CardTitle>👩‍🏫 Docentes únicos</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold">
+        <Card>
+          <CardHeader><CardTitle className="text-muted-foreground">Docentes únicos</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tracking-tight tabular-nums">
             {insights.isLoading ? <Skeleton className="h-8 w-16" /> : insights.data?.kpis.docentes_unicos ?? 0}
           </CardContent>
         </Card>
-        <Card className="bg-blue-500/5 border-blue-500/30">
-          <CardHeader><CardTitle>✅ Boletas con XML</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold">
+        <Card>
+          <CardHeader><CardTitle className="text-muted-foreground">Con XML</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tracking-tight tabular-nums">
             {insights.isLoading ? <Skeleton className="h-8 w-16" /> : insights.data?.kpis.boletas_con_xml ?? 0}
           </CardContent>
         </Card>
-        <Card className="bg-amber-500/5 border-amber-500/30">
-          <CardHeader><CardTitle>⚠️ Boletas sin XML</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold">
+        <Card>
+          <CardHeader><CardTitle className="text-muted-foreground">Sin XML</CardTitle></CardHeader>
+          <CardContent className="text-xl font-semibold tracking-tight tabular-nums">
             {insights.isLoading ? <Skeleton className="h-8 w-16" /> : insights.data?.kpis.boletas_sin_xml ?? 0}
           </CardContent>
         </Card>
@@ -117,7 +118,7 @@ export function PeriodPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="min-w-0 overflow-hidden">
           <CardHeader>
-            <CardTitle>🏢 Boletas por sede</CardTitle>
+            <CardTitle>Boletas por sede</CardTitle>
           </CardHeader>
           <CardContent className="h-[320px] min-w-0">
             {insights.isLoading ? (
@@ -125,11 +126,11 @@ export function PeriodPage() {
             ) : (
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                 <BarChart data={insights.data?.by_sede || []}>
-                  <CartesianGrid strokeDasharray="3 3" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="sede" hide />
                   <YAxis allowDecimals={false} />
                   <Tooltip />
-                  <Bar dataKey="boletas" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="boletas" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -137,7 +138,7 @@ export function PeriodPage() {
         </Card>
         <Card className="min-w-0 overflow-hidden">
           <CardHeader>
-            <CardTitle>🏆 Top docentes por boletas</CardTitle>
+            <CardTitle>Top docentes</CardTitle>
           </CardHeader>
           <CardContent className="h-[320px] min-w-0">
             {insights.isLoading ? (

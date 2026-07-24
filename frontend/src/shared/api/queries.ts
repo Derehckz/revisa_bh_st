@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/shared/api/client";
 import type {
   BoletaDetailResponse,
+  DocenteEmailsResponse,
   DocenteMetricsResponse,
   DocenteListResponse,
   DocenteProfileResponse,
@@ -13,19 +14,37 @@ import type {
   PaginatedBoletas,
   Period,
   PeriodOverviewResponse,
+  ExcelAvanceResponse,
   PeriodInsightsResponse,
   PeriodSummary,
   RunStagesResponse,
   RunsResponse,
   StagesListResponse,
   Step0OptionsResponse,
+  SyncStatus,
   YearStatsResponse,
 } from "@/shared/api/types";
+
+/** Invalida datos de período/operación para que la UI se actualice sin F5. */
+export function invalidatePeriodViews(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: ["period-overview"] });
+  void queryClient.invalidateQueries({ queryKey: ["excel-avance"] });
+  void queryClient.invalidateQueries({ queryKey: ["operations-jobs"] });
+  void queryClient.invalidateQueries({ queryKey: ["stage-options"] });
+  void queryClient.invalidateQueries({ queryKey: ["periods"] });
+  void queryClient.invalidateQueries({ queryKey: ["operations-history"] });
+  void queryClient.invalidateQueries({ queryKey: ["boletas"] });
+  void queryClient.invalidateQueries({ queryKey: ["summary"] });
+  void queryClient.invalidateQueries({ queryKey: ["period-insights"] });
+  void queryClient.invalidateQueries({ queryKey: ["outbox-stats"] });
+  void queryClient.invalidateQueries({ queryKey: ["outbox-rows"] });
+}
 
 export function usePeriods(baseUrl: string, apiKey: string) {
   return useQuery({
     queryKey: ["periods", baseUrl],
     queryFn: () => apiGet<Period[]>(baseUrl, apiKey, "/periods"),
+    refetchInterval: 30_000,
   });
 }
 
@@ -34,6 +53,7 @@ export function usePeriodSummary(baseUrl: string, apiKey: string, year?: number,
     queryKey: ["summary", baseUrl, year, month],
     enabled: Boolean(year && month),
     queryFn: () => apiGet<PeriodSummary>(baseUrl, apiKey, `/period/${year}/${month}`),
+    refetchInterval: 15_000,
   });
 }
 
@@ -42,18 +62,28 @@ export function usePeriodInsights(baseUrl: string, apiKey: string, year?: number
     queryKey: ["period-insights", baseUrl, year, month],
     enabled: Boolean(year && month),
     queryFn: () => apiGet<PeriodInsightsResponse>(baseUrl, apiKey, `/period/${year}/${month}/insights`),
+    refetchInterval: 15_000,
   });
 }
 
 export function useBoletas(
   baseUrl: string,
   apiKey: string,
-  params: { year?: number; month?: string; estado?: string; q?: string; page: number; pageSize: number }
+  params: {
+    year?: number;
+    month?: string;
+    estado?: string;
+    q?: string;
+    page: number;
+    pageSize: number;
+    enabled?: boolean;
+  }
 ) {
-  const { year, month, estado, q, page, pageSize } = params;
+  const { year, month, estado, q, page, pageSize, enabled = true } = params;
   return useQuery({
     queryKey: ["boletas", baseUrl, year, month, estado, q, page, pageSize],
-    enabled: Boolean(year && month),
+    enabled: Boolean(enabled && year && month),
+    refetchInterval: 15_000,
     queryFn: () => {
       const offset = (page - 1) * pageSize;
       if (q && q.trim().length >= 2) {
@@ -178,6 +208,28 @@ export function useDocenteMetrics(
   });
 }
 
+export function useDocenteEmails(
+  baseUrl: string,
+  apiKey: string,
+  params: { docenteId?: number; tipo?: string; estado?: string; page: number; pageSize: number; enabled?: boolean }
+) {
+  const { docenteId, tipo, estado, page, pageSize, enabled = true } = params;
+  return useQuery({
+    queryKey: ["docente-emails", baseUrl, docenteId, tipo, estado, page, pageSize],
+    enabled: Boolean(enabled && docenteId),
+    queryFn: () => {
+      const offset = (page - 1) * pageSize;
+      const tipoPart = tipo ? `&tipo=${encodeURIComponent(tipo)}` : "";
+      const estadoPart = estado ? `&estado=${encodeURIComponent(estado)}` : "";
+      return apiGet<DocenteEmailsResponse>(
+        baseUrl,
+        apiKey,
+        `/docentes/${docenteId}/emails?limit=${pageSize}&offset=${offset}${tipoPart}${estadoPart}`
+      );
+    },
+  });
+}
+
 export function usePipelineStages(baseUrl: string, apiKey: string) {
   return useQuery({
     queryKey: ["pipeline-stages", baseUrl],
@@ -195,6 +247,7 @@ export function useStageOptions(
   return useQuery({
     queryKey: ["stage-options", baseUrl, stageNum, year, month],
     enabled: Boolean(year && month),
+    refetchInterval: 20_000,
     queryFn: () =>
       apiGet<Step0OptionsResponse>(
         baseUrl,
@@ -215,7 +268,7 @@ export function usePeriodOverview(baseUrl: string, apiKey: string, year?: number
     enabled: Boolean(year && month),
     refetchInterval: (query) => {
       const data = query.state.data;
-      return data?.running_job ? 3000 : false;
+      return data?.running_job ? 3000 : 10_000;
     },
     queryFn: () =>
       apiGet<PeriodOverviewResponse>(
@@ -223,6 +276,37 @@ export function usePeriodOverview(baseUrl: string, apiKey: string, year?: number
         apiKey,
         `/operations/period/overview?year=${year}&month=${encodeURIComponent(month || "")}`
       ),
+  });
+}
+
+export function useExcelAvance(baseUrl: string, apiKey: string, year?: number, month?: string) {
+  return useQuery({
+    queryKey: ["excel-avance", baseUrl, year, month],
+    enabled: Boolean(year && month),
+    refetchInterval: 15_000,
+    queryFn: () =>
+      apiGet<ExcelAvanceResponse>(
+        baseUrl,
+        apiKey,
+        `/operations/period/excel-avance?year=${year}&month=${encodeURIComponent(month || "")}`
+      ),
+  });
+}
+
+/** E11: re-sync Excel↔PG vía SyncProjector (refresh=true). */
+export function usePeriodSyncRefresh(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ year, month }: { year: number; month: string }) =>
+      apiGet<SyncStatus & { ok?: boolean; periods_created?: number }>(
+        baseUrl,
+        apiKey,
+        `/operations/period/sync-status?year=${year}&month=${encodeURIComponent(month)}&refresh=true`
+      ),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["period-overview", baseUrl, vars.year, vars.month] });
+      void qc.invalidateQueries({ queryKey: ["summary", baseUrl, vars.year, vars.month] });
+    },
   });
 }
 
@@ -269,6 +353,7 @@ export function useOperationJobs(
 ) {
   return useQuery({
     queryKey: ["operations-jobs", baseUrl, limit, year, month],
+    refetchInterval: 10_000,
     queryFn: async () => {
       const q = new URLSearchParams({ limit: String(limit) });
       if (year != null) q.set("year", String(year));

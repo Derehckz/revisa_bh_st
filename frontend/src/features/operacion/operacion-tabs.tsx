@@ -1,6 +1,6 @@
 import { cn } from "@/shared/lib/utils";
 
-export type OperacionTab = "ejecutar" | "seguimiento" | "avanzado";
+export type OperacionTab = "ejecutar" | "avance" | "seguimiento" | "avanzado";
 
 type Props = {
   active: OperacionTab;
@@ -8,40 +8,44 @@ type Props = {
   hasRunningJob: boolean;
 };
 
-const TABS: { id: OperacionTab; label: string; hint: string }[] = [
-  { id: "ejecutar", label: "1. Ejecutar paso", hint: "Formulario del paso seleccionado" },
-  { id: "seguimiento", label: "2. Seguimiento", hint: "Logs, archivos y historial" },
-  { id: "avanzado", label: "3. Avanzado", hint: "Cierre batch y outbox" },
+const TABS: { id: OperacionTab; label: string }[] = [
+  { id: "ejecutar", label: "Ejecutar" },
+  { id: "avance", label: "Avance" },
+  { id: "seguimiento", label: "Resultados" },
+  { id: "avanzado", label: "Más" },
 ];
 
 export function OperacionTabs({ active, onChange, hasRunningJob }: Props) {
   return (
-    <div className="border-b border-border">
-      <div className="flex flex-wrap gap-1" role="tablist">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={active === tab.id}
-            onClick={() => onChange(tab.id)}
-            className={cn(
-              "rounded-t-md px-4 py-2 text-sm font-medium transition-colors",
-              active === tab.id
-                ? "border border-b-0 border-border bg-card text-foreground"
-                : "text-muted-foreground hover:bg-muted/60"
-            )}
-          >
-            {tab.label}
-            {tab.id === "seguimiento" && hasRunningJob && (
-              <span className="ml-1.5 inline-block h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-            )}
-          </button>
-        ))}
+    <div className="border-b border-border/80 px-3 pt-3" role="tablist" aria-label="Secciones de operación">
+      <div className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg bg-muted/70 p-0.5">
+        {TABS.map((tab) => {
+          const isActive = active === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => onChange(tab.id)}
+              className={cn(
+                "relative shrink-0 rounded-md px-3 py-1.5 text-[0.8125rem] font-medium tracking-tight transition-colors",
+                isActive
+                  ? "bg-card text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {tab.label}
+              {tab.id === "seguimiento" && hasRunningJob && (
+                <span
+                  className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-primary"
+                  aria-label="Hay una tarea en curso"
+                />
+              )}
+            </button>
+          );
+        })}
       </div>
-      <p className="bg-card px-4 py-2 text-xs text-muted-foreground border-x border-border">
-        {TABS.find((t) => t.id === active)?.hint}
-      </p>
     </div>
   );
 }

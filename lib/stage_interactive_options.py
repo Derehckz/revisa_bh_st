@@ -30,7 +30,9 @@ def _solicitud_sheets(path: str) -> list[str]:
     try:
         import pandas as pd
 
-        return list(pd.ExcelFile(path, engine="openpyxl").sheet_names)
+        # En Windows hay que cerrar el ExcelFile; si no, uvicorn deja Solicitud.xlsx bloqueado.
+        with pd.ExcelFile(path, engine="openpyxl") as xls:
+            return list(xls.sheet_names)
     except Exception:
         return []
 
@@ -126,6 +128,23 @@ def enrich_params_schema(
         if name == "institucion":
             f["type"] = "select"
             f["options"] = choices.get("institucion_options") or []
+
+        if stage_num == 1:
+            deadlines = None
+            try:
+                import period_mail_config
+
+                deadlines = period_mail_config.get_deadlines(year, month)
+            except Exception:
+                deadlines = None
+            if name == "fecha_limite_recepcion":
+                f["default"] = (deadlines or {}).get("fecha_limite_recepcion") or config.ULT_FECHA_RECEPCION
+            elif name == "horario_recepcion":
+                f["default"] = (deadlines or {}).get("horario_recepcion") or config.HORARIO_RECEPCION
+            elif name == "fecha_limite_recordatorio":
+                f["default"] = (deadlines or {}).get("fecha_limite_recordatorio") or config.ULT_FECHA_RECORDATORIO
+            elif name == "horario_recordatorio":
+                f["default"] = (deadlines or {}).get("horario_recordatorio") or config.HORARIO_RECORDATORIO
 
         if f.get("type") == "boolean":
             f["label"] = _friendly_boolean_label(name, f.get("label", name))

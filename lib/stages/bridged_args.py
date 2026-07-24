@@ -30,10 +30,13 @@ class BridgedContext:
     institucion: str | None = None
     agrupar_archivos: bool = False
     force: bool = False
+    streamlined: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_api_params(cls, stage_num: int, params: dict[str, Any]) -> "BridgedContext":
+        from stages.streamlined import param_streamlined
+
         def _str(k: str) -> str | None:
             v = params.get(k)
             return str(v).strip() if v not in (None, "") else None
@@ -60,6 +63,7 @@ class BridgedContext:
             institucion=_str("institucion"),
             agrupar_archivos=bool(params.get("agrupar_archivos")),
             force=bool(params.get("force")),
+            streamlined=param_streamlined(params),
             extra=dict(params),
         )
 
@@ -151,7 +155,7 @@ def build_argv(ctx: BridgedContext) -> list[str]:
                 ["--ruta-salida", os.path.join(config.RAIZ, str(y), str(m), out)]
             )
 
-    if not ctx.supervised:
+    if not ctx.supervised or ctx.streamlined:
         argv.append("--yes")
 
     return argv
@@ -172,7 +176,7 @@ def build_namespace(ctx: BridgedContext) -> argparse.Namespace:
         dry_run=ctx.dry_run,
         mover=ctx.mover,
         agrupar_archivos=ctx.agrupar_archivos,
-        yes=not ctx.supervised,
+        yes=(not ctx.supervised) or ctx.streamlined,
     )
 
 

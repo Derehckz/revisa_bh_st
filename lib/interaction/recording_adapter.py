@@ -15,10 +15,28 @@ class RecordingAdapter(InteractionPort):
         self._path = events_path
         os.makedirs(os.path.dirname(events_path), exist_ok=True)
 
+    def _json_safe(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(k): self._json_safe(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_safe(v) for v in value]
+        if isinstance(value, datetime):
+            return value.isoformat()
+        # numpy/pandas escalares exponen .item()
+        if hasattr(value, "item"):
+            try:
+                return self._json_safe(value.item())
+            except Exception:
+                pass
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        return str(value)
+
     def _write(self, record: dict[str, Any]) -> None:
         record["ts"] = datetime.now(UTC).isoformat()
+        safe_record = self._json_safe(record)
         with open(self._path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            f.write(json.dumps(safe_record, ensure_ascii=False) + "\n")
 
     def log(self, message: str, *, level: str = "info") -> None:
         self._write({"type": "log", "level": level, "message": message})

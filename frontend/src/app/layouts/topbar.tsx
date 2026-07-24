@@ -7,24 +7,33 @@ const labels: Record<string, string> = {
   "/": "Dashboard",
   "/periodo": "Período",
   "/boletas": "Boletas",
+  "/docentes": "Docentes",
+  "/operacion": "Operación",
   "/runs": "Runs",
-  "/settings": "Configuración",
+  "/settings": "Ajustes",
 };
 
 export function Topbar() {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const label = labels[location.pathname] || "Dashboard";
+
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span>Inicio</span>
-        <ChevronRight size={14} />
-        <span className="font-medium text-foreground">{label}</span>
-      </div>
-      <Button variant="outline" className="gap-2" onClick={toggleTheme}>
-        {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-        <span className="text-xs">{theme === "dark" ? "Light" : "Dark"}</span>
+    <header className="sticky top-0 z-10 flex h-12 items-center justify-between border-b border-border/70 bg-background/80 px-4 backdrop-blur-xl md:px-6 lg:px-8">
+      <nav className="flex items-center gap-1.5 text-[0.8125rem] text-muted-foreground" aria-label="Breadcrumb">
+        <span>BH</span>
+        <ChevronRight size={12} strokeWidth={2} className="opacity-50" />
+        <span className="font-medium tracking-tight text-foreground">{label}</span>
+      </nav>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 gap-1.5 px-2.5 text-muted-foreground"
+        onClick={toggleTheme}
+        aria-label={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+      >
+        {theme === "dark" ? <Sun size={15} strokeWidth={1.75} /> : <Moon size={15} strokeWidth={1.75} />}
+        <span className="text-xs">{theme === "dark" ? "Claro" : "Oscuro"}</span>
       </Button>
     </header>
   );

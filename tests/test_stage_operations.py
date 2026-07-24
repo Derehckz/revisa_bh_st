@@ -57,7 +57,9 @@ class TestStageOperations(unittest.TestCase):
                     return_value={"pending": 1},
                 ):
                     overview = stage_operations.period_overview(2026, "Mayo", jobs=[])
-        self.assertEqual(overview["period"], {"year": 2026, "month": "Mayo"})
+        self.assertEqual(overview["period"]["year"], 2026)
+        self.assertEqual(overview["period"]["month"], "Mayo")
+        self.assertIn("status", overview["period"])
         self.assertIn("stages", overview)
         self.assertGreater(len(overview["stages"]), 0)
         self.assertEqual(overview["outbox_stats"], {"pending": 1})

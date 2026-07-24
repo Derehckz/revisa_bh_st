@@ -10,6 +10,7 @@ import pandas as pd
 
 import email_outbox
 import email_templates as templates
+import mail_ledger
 import idempotency_store
 import utils
 from interaction.exceptions import SessionCancelled
@@ -167,9 +168,12 @@ def procesar_correos(
         banco = fila.get("BANCO", "")
         tipo_cuenta = fila.get("FORMA PAGO", "")
         nro_cuenta = normalizar_nro_cuenta(fila.get("NªCUENTA", ""))
-        n_boleta = fila.get("Boleta", "")
+        n_boleta = fila.get("Boleta", fila.get("Número Boleta", ""))
         codigo_origen = str(
-            fila.get("LOCATION", fila.get("CODIGO", fila.get("INS", "")))
+            fila.get(
+                "LOCATION",
+                fila.get("CODIGO", fila.get("INS", fila.get("Ubicación", ""))),
+            )
         ).strip()
         monto = normalizar_monto_liquido(fila.get("LÍQUIDO", 0))
         monto_correo = f"${monto:,.0f}".replace(",", ".")
@@ -177,7 +181,7 @@ def procesar_correos(
         item_key = build_item_key(
             mes_año_pago, rut, correo, codigo_origen, n_boleta, tipo_cuenta, nro_cuenta, monto
         )
-        if not force_resend and idempotency_store.was_success(STAGE_ID, item_key):
+        if not force_resend and mail_ledger.was_sent(STAGE_ID, item_key):
             df.at[idx, "Correo Enviado"] = "⏭ Omitido por idempotencia"
             stats["skipped"] += 1
             continue
@@ -240,7 +244,7 @@ def procesar_correos(
         if dispatch_outbox is not None and ix in dispatch_outbox:
             ob_id = dispatch_outbox[ix]
         else:
-            ob_id = email_outbox.record_pending(
+            ob_id = mail_ledger.record_pending(
                 STAGE_ID,
                 item_key,
                 {"to": correo, "boleta": str(n_boleta), "monto": monto},
@@ -258,13 +262,13 @@ def procesar_correos(
                 log_context=f"script7 fila={ix + 1}",
             ):
                 raise RuntimeError("No se pudo enviar tras reintentos COM")
-            email_outbox.mark_sent(ob_id)
+            mail_ledger.mark_outbox_sent(ob_id)
             df.at[idx, "Correo Enviado"] = "✅ Enviado"
-            idempotency_store.mark_success(STAGE_ID, item_key, details=f"boleta={n_boleta}")
+            mail_ledger.mark_sent(STAGE_ID, item_key, details=f"boleta={n_boleta}")
             stats["sent"] += 1
             time.sleep(1)
         except Exception as e:
-            email_outbox.mark_failed(ob_id, str(e))
+            mail_ledger.mark_outbox_failed(ob_id, str(e))
             df.at[idx, "Correo Enviado"] = f"❌ Error: {e}"
             stats["failed"] += 1
 

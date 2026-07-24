@@ -14,6 +14,29 @@ from interaction.port import PromptRequest, PromptResponse
 EventCallback = Callable[[dict[str, Any]], None]
 
 
+def json_safe(obj: Any) -> Any:
+    """Convierte payloads (numpy/pandas/etc.) a tipos JSON-serializables."""
+    if obj is None or isinstance(obj, (str, bool, int, float)):
+        return obj
+    if isinstance(obj, dict):
+        return {str(k): json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [json_safe(v) for v in obj]
+    item = getattr(obj, "item", None)
+    if callable(item):
+        try:
+            return json_safe(item())
+        except Exception:
+            pass
+    isoformat = getattr(obj, "isoformat", None)
+    if callable(isoformat):
+        try:
+            return isoformat()
+        except Exception:
+            pass
+    return str(obj)
+
+
 class SessionBus:
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
@@ -69,7 +92,7 @@ class SessionBus:
                 "seq": self._seq,
                 "ts": datetime.now(UTC).isoformat(),
                 "type": event_type,
-                "payload": payload,
+                "payload": json_safe(payload if isinstance(payload, dict) else {"value": payload}),
             }
             self._events.append(event)
             callbacks = list(self._callbacks)

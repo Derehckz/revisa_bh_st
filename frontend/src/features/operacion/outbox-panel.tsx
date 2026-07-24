@@ -5,14 +5,17 @@ import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Select } from "@/shared/ui/select";
 import { useToast } from "@/shared/ui/toast";
+import { usePeriodOperationGuard } from "./period-operation-context";
 
 type Props = {
   baseUrl: string;
   apiKey: string;
+  disabled?: boolean;
 };
 
-export function OutboxPanel({ baseUrl, apiKey }: Props) {
+export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
   const { push } = useToast();
+  const { confirmBeforeOperation, assessment } = usePeriodOperationGuard();
   const [statusFilter, setStatusFilter] = useState("");
   const [dispatchConfirm, setDispatchConfirm] = useState(false);
   const [reopenConfirm, setReopenConfirm] = useState(false);
@@ -21,7 +24,14 @@ export function OutboxPanel({ baseUrl, apiKey }: Props) {
   const stats = useOutboxStats(baseUrl, apiKey);
   const rows = useOutboxRows(baseUrl, apiKey, statusFilter || undefined, 30);
 
+  const blocked = disabled || assessment.isClosed;
+
   async function dispatchCom(dryRun: boolean) {
+    if (blocked) {
+      push("El período seleccionado está cerrado. Cambia de mes o usa la consola.", "error");
+      return;
+    }
+    if (!(await confirmBeforeOperation())) return;
     setBusy(true);
     try {
       const result = await apiPost<{ ok: number; failed: number; dry_skipped: number }>(
@@ -44,6 +54,11 @@ export function OutboxPanel({ baseUrl, apiKey }: Props) {
   }
 
   async function reopenFailed() {
+    if (blocked) {
+      push("El período seleccionado está cerrado.", "error");
+      return;
+    }
+    if (!(await confirmBeforeOperation())) return;
     setBusy(true);
     try {
       const result = await apiPost<{ reopened: number }>(baseUrl, apiKey, "/operations/outbox/reopen-failed?limit=200");
@@ -70,6 +85,11 @@ export function OutboxPanel({ baseUrl, apiKey }: Props) {
           Reintento COM sin re-ejecutar scripts (misma lógica que{" "}
           <code className="text-xs">herramientas/outbox_worker.py</code>).
         </p>
+        {blocked && (
+          <p className="text-sm text-amber-700 rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
+            Período cerrado: dispatch y reapertura deshabilitados desde la web.
+          </p>
+        )}
         <div className="flex flex-wrap gap-2 text-xs">
           {Object.entries(byStatus).map(([st, n]) => (
             <span key={st} className="rounded-md border border-border px-2 py-1">
@@ -117,18 +137,23 @@ export function OutboxPanel({ baseUrl, apiKey }: Props) {
 
         <div className="space-y-2 border-t border-border pt-3">
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={dispatchConfirm} onChange={(e) => setDispatchConfirm(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={dispatchConfirm}
+              onChange={(e) => setDispatchConfirm(e.target.checked)}
+              disabled={blocked}
+            />
             Confirmo ejecutar dispatch COM (hasta 30 pending)
           </label>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              disabled={busy || !dispatchConfirm}
+              disabled={busy || !dispatchConfirm || blocked}
               onClick={() => void dispatchCom(true)}
             >
               Simular dispatch
             </Button>
-            <Button disabled={busy || !dispatchConfirm} onClick={() => void dispatchCom(false)}>
+            <Button disabled={busy || !dispatchConfirm || blocked} onClick={() => void dispatchCom(false)}>
               Dispatch COM real
             </Button>
           </div>
@@ -136,10 +161,15 @@ export function OutboxPanel({ baseUrl, apiKey }: Props) {
 
         <div className="space-y-2 border-t border-border pt-3">
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={reopenConfirm} onChange={(e) => setReopenConfirm(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={reopenConfirm}
+              onChange={(e) => setReopenConfirm(e.target.checked)}
+              disabled={blocked}
+            />
             Confirmo reabrir failed elegibles como pending
           </label>
-          <Button variant="outline" disabled={busy || !reopenConfirm} onClick={() => void reopenFailed()}>
+          <Button variant="outline" disabled={busy || !reopenConfirm || blocked} onClick={() => void reopenFailed()}>
             Reabrir failed
           </Button>
         </div>

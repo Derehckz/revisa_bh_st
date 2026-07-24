@@ -1,4 +1,6 @@
-type ApiError = {
+import { extractApiErrorMessage } from "@/shared/lib/api-error";
+
+export type ApiError = {
   status: number;
   code: string;
   message: string;
@@ -36,7 +38,7 @@ export async function apiGet<T>(baseUrl: string, apiKey: string, path: string): 
     throw {
       status: response.status,
       code: errorPayload?.code || `HTTP_${response.status}`,
-      message: errorPayload?.message || "Error no controlado en API",
+      message: errorPayload?.message || extractApiErrorMessage(payload, response.status),
       details: (errorPayload?.details || {}) as Record<string, unknown>,
     } satisfies ApiError;
   }
@@ -70,7 +72,7 @@ export async function apiPost<T>(
     throw {
       status: response.status,
       code: errorPayload?.code || `HTTP_${response.status}`,
-      message: errorPayload?.message || "Error no controlado en API",
+      message: errorPayload?.message || extractApiErrorMessage(payload, response.status),
       details: (errorPayload?.details || {}) as Record<string, unknown>,
     } satisfies ApiError;
   }

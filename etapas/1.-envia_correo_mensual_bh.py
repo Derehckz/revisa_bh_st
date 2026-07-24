@@ -8,6 +8,7 @@ from interaction.auto_adapter import AutoAdapter
 from interaction.cli_adapter import CLIAdapter
 from stages.context import Stage1Context
 from stages.stage1.mail import build_mail_item_key as _build_mail_item_key
+from stages.stage1.mail import enviar_correos  # noqa: F401 — usado por outbox_com_dispatch
 from stages.stage1.service import Stage1Service
 
 
@@ -36,10 +37,52 @@ if __name__ == "__main__":
         help="Aborta si la Solicitud.xlsx no cumple el esquema canónico.",
     )
     parser.add_argument(
+        "--month-dir",
+        dest="month_dir",
+        type=str,
+        default=None,
+        help="Carpeta del período (ej: 2026/Mayo).",
+    )
+    parser.add_argument(
+        "--excel-file",
+        dest="excel_file",
+        type=str,
+        default=None,
+        help="Archivo Excel del mes (ej: Solicitud.xlsx).",
+    )
+    parser.add_argument(
         "--sheet",
         type=str,
         default=None,
         help="Nombre de la hoja del Excel (ej. Solicitud).",
+    )
+    parser.add_argument(
+        "--fecha-limite-recepcion",
+        dest="fecha_limite_recepcion",
+        type=str,
+        default=None,
+        help="Fecha límite en correos originales (ej: 27 Mayo 2026).",
+    )
+    parser.add_argument(
+        "--horario-recepcion",
+        dest="horario_recepcion",
+        type=str,
+        default=None,
+        help="Horario límite en correos originales (ej: 19:00).",
+    )
+    parser.add_argument(
+        "--fecha-limite-recordatorio",
+        dest="fecha_limite_recordatorio",
+        type=str,
+        default=None,
+        help="Fecha límite en correos de recordatorio (ej: 30 Mayo 2026).",
+    )
+    parser.add_argument(
+        "--horario-recordatorio",
+        dest="horario_recordatorio",
+        type=str,
+        default=None,
+        help="Horario límite en correos de recordatorio (ej: 19:00).",
     )
     parser.add_argument(
         "--supervision-mode",

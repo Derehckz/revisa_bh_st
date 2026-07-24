@@ -128,6 +128,9 @@ def generar_reporte_texto(df):
         nombre_razon = fila.get('RUT RAZON', '')
         estado = fila.get('Estado_Recepcion', '')
         obs = fila.get('Observaciones', '')
+        descartes = fila.get('Observacion_Descartes', '')
+        if descartes:
+            obs = f"{obs} | Descartes: {descartes}"
         lineas.append(
             " │ ".join([
                 fit_text(rut, 15),
@@ -322,6 +325,51 @@ def es_provisionado(texto):
     patrones = ["provisionado", "provisonado", "provs"]
     return any(p in texto for p in patrones)
 
+
+def _registrar_descarte(descartes: list[str], archivo: str, motivo: str) -> None:
+    descartes.append(f"{archivo}: {motivo}")
+
+
+def _formatear_descartes(descartes: list[str]) -> str:
+    return "; ".join(descartes)
+
+
+def _ordenar_candidatos_xml_para_fila(
+    xml_todos: list[str],
+    variants_pref: list[str],
+    monto_excel: float,
+    rut_razon: str,
+    ruta_carpeta: str,
+) -> list[str]:
+    """Prioriza boletas con monto y RUT razón compatibles con la fila actual."""
+    rut_razon_cuerpo = separar_rut_dv(rut_razon)[0]
+    candidatos: list[tuple[int, str]] = []
+
+    for archivo_xml in xml_todos:
+        low_xml = archivo_xml.lower()
+        if not any(low_xml.startswith(f"{PREFIJO}{v}") for v in variants_pref):
+            continue
+
+        score = 0
+        if extraer_sufijo_archivo(archivo_xml) is None:
+            score -= 20
+        else:
+            datos_xml = extraer_datos_xml(os.path.join(ruta_carpeta, archivo_xml))
+            if "error" not in datos_xml:
+                monto_xml = datos_xml.get("totalHonorarios")
+                if monto_xml is not None and abs(monto_excel - monto_xml) <= 1:
+                    score += 100
+                rut_receptor_xml = normalizar_rut_con_dv(
+                    datos_xml.get("rutReceptor", "") + datos_xml.get("dvReceptor", "")
+                )
+                if separar_rut_dv(rut_receptor_xml)[0] == rut_razon_cuerpo:
+                    score += 50
+
+        candidatos.append((score, archivo_xml))
+
+    candidatos.sort(key=lambda item: (-item[0], item[1]))
+    return [archivo for _, archivo in candidatos]
+
 def _filas_resumen(df) -> list[tuple[str, str]]:
     resumen = df.groupby(["Estado_Recepcion", "Observaciones"]).size().reset_index(name="Cantidad")
     rows: list[tuple[str, str]] = []
@@ -338,7 +386,7 @@ def _filas_resumen(df) -> list[tuple[str, str]]:
 def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame, dict]:
     df = df.copy()
 
-    columnas_str = ['Estado_Recepcion', 'Observaciones', 'archivo_xml']
+    columnas_str = ['Estado_Recepcion', 'Observaciones', 'Observacion_Descartes', 'archivo_xml']
     for col in columnas_str:
         if col not in df.columns:
             df[col] = ''
@@ -363,6 +411,7 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
         if pd.isna(fila.get('RUT_SIN_DV')) or pd.isna(fila.get('RUT RAZON')):
             df.at[idx,'Estado_Recepcion'] = 'NO RECIBIDO'
             df.at[idx,'Observaciones'] = 'RUT vacío'
+            df.at[idx,'Observacion_Descartes'] = ''
             df.at[idx,'archivo_xml'] = ''
             logging.warning(f"Fila {idx+1}: RUT vacío. Estado: NO RECIBIDO.")
             continue
@@ -379,25 +428,46 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
         datos_validos = None
         archivo_xml_valido = None
         xml_existente_con_fallo_institucion = False
+        descartes: list[str] = []
+        candidatos_xml = _ordenar_candidatos_xml_para_fila(
+            xml_todos,
+            variants_pref,
+            monto_excel,
+            rut_razon,
+            ruta_carpeta,
+        )
 
         # Buscar XML válido primero
-        for archivo_xml in xml_todos:
-            low_xml = archivo_xml.lower()
-            if not any(low_xml.startswith(f"{PREFIJO}{v}") for v in variants_pref):
-                continue
+        for archivo_xml in candidatos_xml:
             if archivo_xml in xml_usados:
+                _registrar_descarte(
+                    descartes,
+                    archivo_xml,
+                    "corresponde a otra línea del mismo docente (ya asignada)",
+                )
                 continue
 
             sufijo_xml = extraer_sufijo_archivo(archivo_xml)
             if sufijo_xml is None:
+                _registrar_descarte(
+                    descartes,
+                    archivo_xml,
+                    "nombre de archivo sin sufijo numérico válido",
+                )
                 continue
 
             datos_xml = extraer_datos_xml(os.path.join(ruta_carpeta, archivo_xml))
             if 'error' in datos_xml:
+                _registrar_descarte(descartes, archivo_xml, datos_xml["error"])
                 continue
 
             monto_xml = datos_xml.get('totalHonorarios')
             if monto_xml is None or abs(monto_excel - monto_xml) > 1:
+                _registrar_descarte(
+                    descartes,
+                    archivo_xml,
+                    f"monto XML ({monto_xml}) distinto al monto de esta línea ({monto_excel})",
+                )
                 continue
 
             rut_emisor_xml = normalizar_rut_con_dv(datos_xml.get('rutEmisor'))
@@ -405,19 +475,39 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
 
             if rut_emisor_xml != rut_sin_dv:
                 xml_existente_con_fallo_institucion = True
+                _registrar_descarte(
+                    descartes,
+                    archivo_xml,
+                    f"RUT emisor XML ({datos_xml.get('rutEmisor')}) distinto al docente ({fila.get('RUT_SIN_DV')})",
+                )
                 continue
 
             if separar_rut_dv(rut_receptor_xml)[0] != separar_rut_dv(rut_razon)[0]:
+                _registrar_descarte(
+                    descartes,
+                    archivo_xml,
+                    f"RUT receptor XML ({rut_receptor_xml}) distinto al RUT razón de esta línea ({fila.get('RUT RAZON')})",
+                )
                 continue
 
             nombre_pdf_esperado = archivo_xml[:-4] + '.pdf'
             if not os.path.isfile(os.path.join(ruta_carpeta, nombre_pdf_esperado)):
+                _registrar_descarte(
+                    descartes,
+                    archivo_xml,
+                    f"falta PDF pareado ({nombre_pdf_esperado})",
+                )
                 continue
 
             descripcion_xml = datos_xml.get('descripcionLinea', '').lower()
             glosa_excel = str(fila.get('GLOSA', '')).lower()
 
             if es_provisionado(glosa_excel) != es_provisionado(descripcion_xml):
+                _registrar_descarte(
+                    descartes,
+                    archivo_xml,
+                    "glosa/provisión inconsistente entre solicitud y XML",
+                )
                 continue
 
             datos_validos = datos_xml
@@ -448,6 +538,11 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
                         continue
 
                     pdf_sin_xml = True
+                    _registrar_descarte(
+                        descartes,
+                        f,
+                        "PDF sin XML asociado en la carpeta del mes",
+                    )
                     break
 
                 if pdf_sin_xml:
@@ -461,6 +556,7 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
 
             df.at[idx,'Estado_Recepcion'] = estado
             df.at[idx,'Observaciones'] = obs_text
+            df.at[idx,'Observacion_Descartes'] = _formatear_descartes(descartes)
             df.at[idx,'archivo_xml'] = ''
             continue
 
@@ -474,11 +570,13 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
                 df.at[idx,'Observaciones'] = 'OK; OJO ES PROVISIONADO'
             else:
                 df.at[idx,'Observaciones'] = 'OK'
+            df.at[idx,'Observacion_Descartes'] = ''
             logging.info(f"Fila {idx+1}: Datos correctos. Estado: RECIBIDO.")
         else:
             df.at[idx,'Estado_Recepcion'] = 'RECIBIDO CON ERROR'
             df.at[idx,'archivo_xml'] = archivo_xml_valido
             df.at[idx,'Observaciones'] = '; '.join(obs)
+            df.at[idx,'Observacion_Descartes'] = ''
             logging.warning(f"Fila {idx+1}: Observaciones: {'; '.join(obs)}")
 
     df.drop(columns='__provisionado__', inplace=True)
@@ -502,7 +600,11 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
     logging.info(f"Resumen - inicio: {revis_ini}, final: {revis_fin}, total: {total}")
     ui.log("Validación de filas completada.", level="success")
 
-    stats = {"revis_ini": revis_ini, "revis_fin": revis_fin, "total": total}
+    stats = {
+        "revis_ini": int(revis_ini),
+        "revis_fin": int(revis_fin),
+        "total": int(total),
+    }
     ui.emit("analysis.complete", stats)
     return df, stats
 

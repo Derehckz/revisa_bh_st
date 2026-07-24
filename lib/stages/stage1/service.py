@@ -16,9 +16,9 @@ from interaction.port import InteractionPort
 from interaction.types import SupervisionMode
 from stages.context import Stage1Context
 from stages.stage1 import mail as mail_ops
+from stages.streamlined import confirm_unless_streamlined
 
 _parse_recordatorio_count = reminder_policy.parse_recordatorio_count
-MAX_RECORDATORIOS_POR_PERIODO = reminder_policy.MAX_RECORDATORIOS_POR_PERIODO
 
 
 def _batch_preview_table(
@@ -30,9 +30,19 @@ def _batch_preview_table(
     df,
     indices,
 ) -> None:
+    if tipo_envio == "recordatorio":
+        fecha_limite = config.ULT_FECHA_RECORDATORIO
+        horario_limite = config.HORARIO_RECORDATORIO
+        fecha_label = "Fecha límite recordatorio"
+        hora_label = "Horario límite recordatorio"
+    else:
+        fecha_limite = config.ULT_FECHA_RECEPCION
+        horario_limite = config.HORARIO_RECEPCION
+        fecha_label = "Fecha límite recepción"
+        hora_label = "Horario límite recepción"
     rows = [
-        ("Fecha límite recepción", str(config.ULT_FECHA_RECEPCION)),
-        ("Horario límite", str(config.HORARIO_RECEPCION)),
+        (fecha_label, str(fecha_limite)),
+        (hora_label, str(horario_limite)),
         ("Correos a enviar", str(cantidad)),
         ("Tipo", tipo_envio),
         ("Período", f"{mes} {ano}"),
@@ -71,42 +81,53 @@ class Stage1Service:
             ui.log(f"Archivo adjunto no encontrado: {config.ARCHIVO_ADJUNTO}", level="error")
             return {"ok": False}
 
-        if ctx.year and ctx.month:
-            ano_seleccionado = ctx.year
-            mes_seleccionado = ctx.month
-            ruta_mes = os.path.join(config.RAIZ, ano_seleccionado, mes_seleccionado)
-            if not os.path.exists(ruta_mes):
-                ui.log(f"Ruta no existe: {ruta_mes}", level="error")
-                return {"ok": False}
-        else:
-            try:
-                ano_seleccionado, mes_seleccionado = utils.resolve_año_mes(
-                    config.RAIZ, ctx.year, ctx.month
-                )
-            except ValueError as e:
-                ui.log(str(e), level="error")
-                return {"ok": False}
-            ruta_mes = os.path.join(config.RAIZ, ano_seleccionado, mes_seleccionado)
-
-        archivos = [f for f in os.listdir(ruta_mes) if f.lower().endswith(".xlsx")]
-        if not archivos:
-            ui.log(f"No se encontró Excel en {ruta_mes}", level="error")
+        try:
+            ano_seleccionado, mes_seleccionado = utils.resolve_año_mes(
+                config.RAIZ, ctx.year, ctx.month
+            )
+        except ValueError as e:
+            ui.log(str(e), level="error")
             return {"ok": False}
 
-        if len(archivos) == 1:
-            archivo_excel = archivos[0]
-        elif utils.is_non_interactive():
-            archivo_excel = archivos[0]
-        else:
-            archivo_excel = ui.choose_option(
-                "Archivo Excel",
-                "Seleccione el archivo Excel del mes",
-                archivos,
-                icon="📄",
-            )
-            archivo_excel = str(archivo_excel)
+        ruta_mes = os.path.join(config.RAIZ, ano_seleccionado, mes_seleccionado)
+        if ctx.month_dir:
+            candidate = ctx.month_dir
+            if not os.path.isabs(candidate):
+                candidate = os.path.join(config.RAIZ, candidate)
+            ruta_mes = os.path.abspath(candidate)
+            if not os.path.isdir(ruta_mes):
+                ui.log(f"Carpeta no existe: {ruta_mes}", level="error")
+                return {"ok": False}
 
-        ruta_archivo_excel = os.path.join(ruta_mes, archivo_excel)
+        if ctx.excel_file:
+            excel_name = ctx.excel_file
+            ruta_archivo_excel = (
+                excel_name if os.path.isabs(excel_name) else os.path.join(ruta_mes, excel_name)
+            )
+            if not os.path.isfile(ruta_archivo_excel):
+                ui.log(f"No se encontró Excel: {ruta_archivo_excel}", level="error")
+                return {"ok": False}
+            archivo_excel = os.path.basename(ruta_archivo_excel)
+        else:
+            archivos = [f for f in os.listdir(ruta_mes) if f.lower().endswith(".xlsx")]
+            if not archivos:
+                ui.log(f"No se encontró Excel en {ruta_mes}", level="error")
+                return {"ok": False}
+
+            if len(archivos) == 1:
+                archivo_excel = archivos[0]
+            elif utils.is_non_interactive():
+                archivo_excel = archivos[0]
+            else:
+                archivo_excel = ui.choose_option(
+                    "Archivo Excel",
+                    "Seleccione el archivo Excel del mes",
+                    archivos,
+                    icon="📄",
+                )
+                archivo_excel = str(archivo_excel)
+
+            ruta_archivo_excel = os.path.join(ruta_mes, archivo_excel)
         ruta_logs = os.path.join(ruta_mes, "logs_envios")
         os.makedirs(ruta_logs, exist_ok=True)
         ruta_log_file = os.path.join(ruta_logs, "envio_boletas.log")
@@ -123,7 +144,9 @@ class Stage1Service:
                 ("Logs", ruta_log_file),
             ],
         )
-        if not ui.confirm_yes_no(
+        if not confirm_unless_streamlined(
+            ui,
+            ctx.streamlined,
             "Continuar",
             "¿Continuar con análisis y previsualización?",
             default=False,
@@ -132,8 +155,8 @@ class Stage1Service:
             return {"ok": False, "cancelled": True}
 
         try:
-            xls = pd.ExcelFile(ruta_archivo_excel, engine="openpyxl")
-            hojas = xls.sheet_names
+            with pd.ExcelFile(ruta_archivo_excel, engine="openpyxl") as xls:
+                hojas = list(xls.sheet_names)
         except (OSError, ValueError, KeyError) as e:
             ui.log(f"Error al leer Excel: {e}", level="error")
             return {"ok": False}
@@ -208,12 +231,9 @@ class Stage1Service:
         ui.table(
             "Resumen recordatorios",
             [
-                ("Candidatos recordatorio #1", str(resumen_rec["cand_1"])),
-                ("Candidatos recordatorio #2", str(resumen_rec["cand_2"])),
-                (
-                    f"Bloqueados tope ({MAX_RECORDATORIOS_POR_PERIODO})",
-                    str(resumen_rec["bloqueados"]),
-                ),
+                ("Primera vez (sin recordatorios previos)", str(resumen_rec["cand_1"])),
+                ("Reiterados (1 o más recordatorios previos)", str(resumen_rec["cand_reiterados"])),
+                ("Total elegibles NO RECIBIDO", str(resumen_rec["total_elegibles"])),
                 ("Force-resend", "Sí" if ctx.force_resend else "No"),
             ],
         )
@@ -227,7 +247,54 @@ class Stage1Service:
             },
         )
 
+        from settings import get_bool_setting
+
+        use_ctx_deadlines = get_bool_setting("BH_DEADLINES_VIA_CONTEXT", True)
+        deadline_kwargs = {
+            "fecha_limite_recepcion": ctx.fecha_limite_recepcion or config.ULT_FECHA_RECEPCION,
+            "horario_recepcion": ctx.horario_recepcion or config.HORARIO_RECEPCION,
+            "fecha_limite_recordatorio": ctx.fecha_limite_recordatorio or config.ULT_FECHA_RECORDATORIO,
+            "horario_recordatorio": ctx.horario_recordatorio or config.HORARIO_RECORDATORIO,
+        }
+
+        prev_fecha = config.ULT_FECHA_RECEPCION
+        prev_hora = config.HORARIO_RECEPCION
+        prev_fecha_rec = config.ULT_FECHA_RECORDATORIO
+        prev_hora_rec = config.HORARIO_RECORDATORIO
+        if not use_ctx_deadlines:
+            if ctx.fecha_limite_recepcion:
+                config.ULT_FECHA_RECEPCION = ctx.fecha_limite_recepcion
+            if ctx.horario_recepcion:
+                config.HORARIO_RECEPCION = ctx.horario_recepcion
+            if ctx.fecha_limite_recordatorio:
+                config.ULT_FECHA_RECORDATORIO = ctx.fecha_limite_recordatorio
+            if ctx.horario_recordatorio:
+                config.HORARIO_RECORDATORIO = ctx.horario_recordatorio
+
+        try:
+            import period_mail_config
+
+            period_mail_config.save_deadlines(
+                ano_seleccionado,
+                mes_seleccionado,
+                deadline_kwargs,
+            )
+        except Exception:
+            pass
+
         stats_total: dict[str, int] = {}
+
+        def _send_mail(indices, tipo: str):
+            return mail_ops.enviar_correos(
+                ui,
+                df,
+                indices,
+                tipo=tipo,
+                force_resend=ctx.force_resend,
+                allow_send=True,
+                supervision_mode=ctx.supervision_mode,
+                **deadline_kwargs,
+            )
 
         try:
             if len(indices_sin_envio) > 0:
@@ -252,31 +319,11 @@ class Stage1Service:
                             f"¿Confirmar envío de {len(indices_sin_envio)} correos originales?",
                             default=False,
                         ):
-                            stats_total.update(
-                                mail_ops.enviar_correos(
-                                    ui,
-                                    df,
-                                    indices_sin_envio,
-                                    tipo="original",
-                                    force_resend=ctx.force_resend,
-                                    allow_send=True,
-                                    supervision_mode=ctx.supervision_mode,
-                                )
-                            )
+                            stats_total.update(_send_mail(indices_sin_envio, "original"))
                         else:
                             ui.log("Envío original cancelado.", level="warning")
                     else:
-                        stats_total.update(
-                            mail_ops.enviar_correos(
-                                ui,
-                                df,
-                                indices_sin_envio,
-                                tipo="original",
-                                force_resend=ctx.force_resend,
-                                allow_send=True,
-                                supervision_mode=ctx.supervision_mode,
-                            )
-                        )
+                        stats_total.update(_send_mail(indices_sin_envio, "original"))
             else:
                 ui.log("No hay pendientes de envío original.", level="warning")
 
@@ -299,29 +346,13 @@ class Stage1Service:
                             f"¿Confirmar {len(indices_recordatorio)} recordatorios?",
                             default=False,
                         ):
-                            r = mail_ops.enviar_correos(
-                                ui,
-                                df,
-                                indices_recordatorio,
-                                tipo="recordatorio",
-                                force_resend=ctx.force_resend,
-                                allow_send=True,
-                                supervision_mode=ctx.supervision_mode,
-                            )
+                            r = _send_mail(indices_recordatorio, "recordatorio")
                             for k, v in r.items():
                                 stats_total[k] = stats_total.get(k, 0) + v
                         else:
                             ui.log("Recordatorios cancelados.", level="warning")
                     else:
-                        r = mail_ops.enviar_correos(
-                            ui,
-                            df,
-                            indices_recordatorio,
-                            tipo="recordatorio",
-                            force_resend=ctx.force_resend,
-                            allow_send=True,
-                            supervision_mode=ctx.supervision_mode,
-                        )
+                        r = _send_mail(indices_recordatorio, "recordatorio")
                         for k, v in r.items():
                             stats_total[k] = stats_total.get(k, 0) + v
             else:
@@ -329,6 +360,11 @@ class Stage1Service:
 
         except SessionCancelled:
             ui.log("Sesión cancelada por el operador.", level="warning")
+            if not use_ctx_deadlines:
+                config.ULT_FECHA_RECEPCION = prev_fecha
+                config.HORARIO_RECEPCION = prev_hora
+                config.ULT_FECHA_RECORDATORIO = prev_fecha_rec
+                config.HORARIO_RECORDATORIO = prev_hora_rec
             guardado_ok = bh_excel_workbook.replace_sheet_atomically(
                 ruta_archivo_excel, hoja_seleccionada, df
             )
@@ -346,6 +382,11 @@ class Stage1Service:
             ui.log(f"Excel guardado: {ruta_archivo_excel}", level="success")
         else:
             ui.log("Envíos OK pero Excel no guardado (revisar bloqueos/backup).", level="error")
+        if not use_ctx_deadlines:
+            config.ULT_FECHA_RECEPCION = prev_fecha
+            config.HORARIO_RECEPCION = prev_hora
+            config.ULT_FECHA_RECORDATORIO = prev_fecha_rec
+            config.HORARIO_RECORDATORIO = prev_hora_rec
 
         ui.emit(
             "session.summary",

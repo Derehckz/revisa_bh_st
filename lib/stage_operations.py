@@ -236,12 +236,255 @@ def period_summary(year: int | str, month: str) -> dict[str, Any]:
         df = pd.read_excel(solicitud, sheet_name=0, engine="openpyxl")
         summary["total_rows"] = int(len(df))
         if "Estado_Recepcion" in df.columns:
-            vc = df["Estado_Recepcion"].astype(str).str.upper()
-            summary["recibidos"] = int(vc.str.contains("RECIBIDO", na=False).sum())
-            summary["no_recibidos"] = int(vc.str.contains("NO RECIBIDO", na=False).sum())
+            vc = df["Estado_Recepcion"].astype(str).str.upper().str.strip()
+            summary["recibidos"] = int(vc.isin({"RECIBIDO", "RECIBIDO CON ERROR"}).sum())
+            summary["no_recibidos"] = int((vc == "NO RECIBIDO").sum())
     except Exception as e:
         summary["read_error"] = str(e)
     return summary
+
+
+def _cell_str(value: Any) -> str:
+    if value is None:
+        return ""
+    try:
+        import pandas as pd
+
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    text = str(value).strip()
+    if text.lower() in {"nan", "none", "nat"}:
+        return ""
+    return text
+
+
+def _classify_mail_flag(value: Any) -> str:
+    text = _cell_str(value)
+    if not text:
+        return "pendiente"
+    low = text.lower()
+    if "❌" in text or "error" in low or "inválido" in low or "invalido" in low:
+        return "error"
+    if "omitido" in low:
+        return "omitido"
+    if "✅" in text or "enviado" in low:
+        return "enviado"
+    return "otro"
+
+
+def _classify_xml_obs(value: Any) -> str:
+    text = _cell_str(value)
+    if not text:
+        return "pendiente"
+    low = text.upper()
+    if "DATOS EXTRAIDOS OK" in low or low.endswith(" OK") or "EXTRAIDOS OK" in low:
+        return "ok"
+    return "observacion"
+
+
+def _read_solicitud_workbook(path: str):
+    """Lee hojas útiles de Solicitud.xlsx; si Excel lo tiene abierto, copia a temp."""
+    import shutil
+    import tempfile
+
+    import pandas as pd
+    from openpyxl import load_workbook
+    from schema_validator import find_sheet
+
+    def _load(src: str):
+        wb = load_workbook(src, read_only=True, data_only=True)
+        try:
+            sheet_names = list(wb.sheetnames)
+        finally:
+            wb.close()
+        solicitud_sheet = find_sheet(sheet_names, "Solicitud") or sheet_names[0]
+        df = pd.read_excel(src, sheet_name=solicitud_sheet, engine="openpyxl")
+        pagos_sheet = find_sheet(sheet_names, "Pagos")
+        df_pagos = None
+        if pagos_sheet:
+            df_pagos = pd.read_excel(src, sheet_name=pagos_sheet, engine="openpyxl")
+        return df, sheet_names, solicitud_sheet, pagos_sheet, df_pagos
+
+    try:
+        return _load(path)
+    except PermissionError:
+        fd, tmp = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+        try:
+            shutil.copy2(path, tmp)
+            return _load(tmp)
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
+def excel_avance(year: int | str, month: str, *, row_limit: int = 500) -> dict[str, Any]:
+    """Avance vivo leído de Solicitud.xlsx (sin abrir el archivo en Excel)."""
+    month_path = _month_dir(year, month)
+    out: dict[str, Any] = {
+        "year": int(year) if str(year).isdigit() else year,
+        "month": month,
+        "month_dir": month_path,
+        "solicitud_path": os.path.join(month_path, "Solicitud.xlsx"),
+        "solicitud_exists": False,
+        "sheets": [],
+        "solicitud_sheet": None,
+        "total_rows": 0,
+        "recepcion": {
+            "recibido": 0,
+            "recibido_con_error": 0,
+            "no_recibido": 0,
+            "pendiente": 0,
+            "otro": 0,
+        },
+        "correo_solicitud": {"enviado": 0, "omitido": 0, "error": 0, "pendiente": 0, "otro": 0},
+        "recordatorios": {"con_recordatorio": 0, "total_envios": 0},
+        "xml_extract": {"ok": 0, "observacion": 0, "pendiente": 0, "con_archivo": 0},
+        "archivos_mes": {"xml": 0, "pdf": 0},
+        "pagos": {
+            "sheet_exists": False,
+            "total_rows": 0,
+            "enviado": 0,
+            "pendiente": 0,
+            "error": 0,
+            "omitido": 0,
+            "otro": 0,
+        },
+        "rows": [],
+        "rows_truncated": False,
+        "read_error": None,
+        "mtime": None,
+    }
+
+    if not os.path.isdir(month_path):
+        return out
+
+    out["archivos_mes"]["xml"] = len(
+        [f for f in os.listdir(month_path) if f.lower().endswith(".xml")]
+    )
+    out["archivos_mes"]["pdf"] = len(
+        [f for f in os.listdir(month_path) if f.lower().endswith(".pdf")]
+    )
+
+    solicitud = out["solicitud_path"]
+    if not os.path.isfile(solicitud):
+        return out
+
+    out["solicitud_exists"] = True
+    try:
+        out["mtime"] = datetime.fromtimestamp(os.path.getmtime(solicitud)).isoformat(timespec="seconds")
+    except OSError:
+        pass
+
+    try:
+        df, sheet_names, sheet, pagos_sheet, df_pagos = _read_solicitud_workbook(solicitud)
+        out["sheets"] = sheet_names
+        out["solicitud_sheet"] = sheet
+        out["total_rows"] = int(len(df))
+
+        if "Estado_Recepcion" in df.columns:
+            for raw in df["Estado_Recepcion"]:
+                estado = _cell_str(raw).upper()
+                if estado == "RECIBIDO":
+                    out["recepcion"]["recibido"] += 1
+                elif estado == "RECIBIDO CON ERROR":
+                    out["recepcion"]["recibido_con_error"] += 1
+                elif estado == "NO RECIBIDO":
+                    out["recepcion"]["no_recibido"] += 1
+                elif not estado:
+                    out["recepcion"]["pendiente"] += 1
+                else:
+                    out["recepcion"]["otro"] += 1
+
+        if "Correo Enviado" in df.columns:
+            for raw in df["Correo Enviado"]:
+                out["correo_solicitud"][_classify_mail_flag(raw)] += 1
+
+        if "Recordatorios Enviados" in df.columns:
+            for raw in df["Recordatorios Enviados"]:
+                text = _cell_str(raw)
+                if not text:
+                    continue
+                try:
+                    n = int(float(text.replace(",", ".")))
+                except ValueError:
+                    digits = "".join(ch for ch in text if ch.isdigit())
+                    n = int(digits) if digits else 0
+                if n > 0:
+                    out["recordatorios"]["con_recordatorio"] += 1
+                    out["recordatorios"]["total_envios"] += n
+
+        if "Observaciones_XML" in df.columns:
+            for raw in df["Observaciones_XML"]:
+                out["xml_extract"][_classify_xml_obs(raw)] += 1
+        else:
+            out["xml_extract"]["pendiente"] = out["total_rows"]
+
+        if "archivo_xml" in df.columns:
+            out["xml_extract"]["con_archivo"] = int(
+                sum(1 for raw in df["archivo_xml"] if _cell_str(raw))
+            )
+
+        if pagos_sheet and df_pagos is not None:
+            out["pagos"]["sheet_exists"] = True
+            out["pagos"]["total_rows"] = int(len(df_pagos))
+            if "Correo Enviado" in df_pagos.columns:
+                for raw in df_pagos["Correo Enviado"]:
+                    out["pagos"][_classify_mail_flag(raw)] += 1
+            else:
+                out["pagos"]["pendiente"] = out["pagos"]["total_rows"]
+
+        if row_limit > 0:
+            limit = min(int(row_limit), len(df))
+            out["rows_truncated"] = len(df) > limit
+            rows: list[dict[str, Any]] = []
+            for idx in range(limit):
+                row = df.iloc[idx]
+                rows.append(
+                    {
+                        "row": int(idx) + 2,
+                        "name": _cell_str(row.get("NAME") if "NAME" in df.columns else ""),
+                        "sede": _cell_str(row.get("SEDE") if "SEDE" in df.columns else ""),
+                        "email": _cell_str(
+                            row.get("Email_Docente") if "Email_Docente" in df.columns else ""
+                        ),
+                        "estado_recepcion": _cell_str(
+                            row.get("Estado_Recepcion") if "Estado_Recepcion" in df.columns else ""
+                        ),
+                        "correo_enviado": _cell_str(
+                            row.get("Correo Enviado") if "Correo Enviado" in df.columns else ""
+                        ),
+                        "correo_clase": _classify_mail_flag(
+                            row.get("Correo Enviado") if "Correo Enviado" in df.columns else ""
+                        ),
+                        "recordatorios": _cell_str(
+                            row.get("Recordatorios Enviados")
+                            if "Recordatorios Enviados" in df.columns
+                            else ""
+                        ),
+                        "archivo_xml": _cell_str(
+                            row.get("archivo_xml") if "archivo_xml" in df.columns else ""
+                        ),
+                        "observaciones_xml": _cell_str(
+                            row.get("Observaciones_XML") if "Observaciones_XML" in df.columns else ""
+                        ),
+                        "xml_clase": _classify_xml_obs(
+                            row.get("Observaciones_XML") if "Observaciones_XML" in df.columns else ""
+                        ),
+                        "monto": _cell_str(
+                            row.get("CUS_TOT_HON") if "CUS_TOT_HON" in df.columns else ""
+                        ),
+                    }
+                )
+            out["rows"] = rows
+    except Exception as e:
+        out["read_error"] = str(e)
+
+    return out
 
 
 def _last_job_for_stage(jobs: list[dict[str, Any]], stage_num: int) -> dict[str, Any] | None:
@@ -344,8 +587,23 @@ def period_overview(
         outbox_stats = {}
 
     kpis = period_summary(year, month)
+    period_status = None
+    try:
+        import period_policy
+
+        period_status = period_policy.get_period_status(year, month)
+    except Exception:
+        period_status = None
+
+    try:
+        import sync_status
+
+        sync_status_out = sync_status.period_sync_status(year, month)
+    except Exception as exc:
+        sync_status_out = {"status": "unknown", "message": f"No se pudo evaluar sync_status: {exc}", "details": {}}
+
     return {
-        "period": {"year": year, "month": month},
+        "period": {"year": year, "month": month, "status": period_status or "abierto"},
         "kpis": kpis,
         "stages": stages_out,
         "running_job": (
@@ -354,8 +612,13 @@ def period_overview(
             else None
         ),
         "outbox_stats": outbox_stats,
+        "sync_status": sync_status_out,
         "recommendation": recommend_next_action(
-            stages_out, kpis=kpis, running_job=running, outbox_stats=outbox_stats
+            stages_out,
+            kpis=kpis,
+            running_job=running,
+            outbox_stats=outbox_stats,
+            period_status=period_status,
         ),
     }
 
@@ -366,9 +629,28 @@ def recommend_next_action(
     kpis: dict[str, Any],
     running_job: dict[str, Any] | None = None,
     outbox_stats: dict[str, int] | None = None,
+    period_status: str | None = None,
 ) -> dict[str, Any]:
     """Sugerencia del siguiente paso operativo (misma lógica que la UI)."""
     outbox_stats = outbox_stats or {}
+    try:
+        import period_policy
+
+        if period_policy.is_closed_status(period_status):
+            return {
+                "kind": "review",
+                "stage_num": None,
+                "title": "Período cerrado",
+                "message": (
+                    "Este período está cerrado en la base de datos. "
+                    "La API no permite jobs ni sesiones interactivas. "
+                    "Selecciona un mes abierto o usa la consola con supervisión manual."
+                ),
+                "action_label": "Cambiar período",
+            }
+    except Exception:
+        pass
+
     sorted_stages = sorted(stages, key=lambda s: int(s["stage_num"]))
 
     if running_job:

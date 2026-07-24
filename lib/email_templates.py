@@ -57,6 +57,26 @@ def generar_asunto_solicitud(tipo: str, mes: str, año: int, rut_docente: str, n
     return f"{tipo_texto} {mes} {año} - {rut_docente}-{nombre_completo}"
 
 
+def plazo_por_tipo(
+    tipo: str,
+    *,
+    fecha_limite_recepcion: str | None = None,
+    horario_recepcion: str | None = None,
+    fecha_limite_recordatorio: str | None = None,
+    horario_recordatorio: str | None = None,
+) -> tuple[str, str]:
+    """Plazos explícitos (preferidos) o fallback a config global."""
+    if tipo == "original":
+        return (
+            (fecha_limite_recepcion or config.ULT_FECHA_RECEPCION),
+            (horario_recepcion or config.HORARIO_RECEPCION),
+        )
+    return (
+        (fecha_limite_recordatorio or config.ULT_FECHA_RECORDATORIO),
+        (horario_recordatorio or config.HORARIO_RECORDATORIO),
+    )
+
+
 def generar_cuerpo_solicitud(
     tipo: str,
     nombre_completo: str,
@@ -69,7 +89,19 @@ def generar_cuerpo_solicitud(
     email_dp: str,
     mes: str,
     año: int,
+    *,
+    fecha_limite_recepcion: str | None = None,
+    horario_recepcion: str | None = None,
+    fecha_limite_recordatorio: str | None = None,
+    horario_recordatorio: str | None = None,
 ) -> str:
+    fecha_limite, horario_limite = plazo_por_tipo(
+        tipo,
+        fecha_limite_recepcion=fecha_limite_recepcion,
+        horario_recepcion=horario_recepcion,
+        fecha_limite_recordatorio=fecha_limite_recordatorio,
+        horario_recordatorio=horario_recordatorio,
+    )
     titulo = "📄 Solicitud de Boleta de Honorarios"
     titulo_color = "#2E8B57"
     subtitulo = f"Proceso iniciado para {mes.capitalize()} {año}"
@@ -77,14 +109,15 @@ def generar_cuerpo_solicitud(
     estado_banner_title = "📋 Instrucciones"
     motivo_texto = (
         f"Junto con saludar cordialmente, Le informamos que se ha iniciado el proceso de emisión de boletas de honorarios correspondientes al mes de <strong>{mes.capitalize()}</strong>. "
-        f"Las boletas serán recepcionadas <strong>hasta el día {config.ULT_FECHA_RECEPCION}, a las {config.HORARIO_RECEPCION}</strong> (plazo impostergable)."
+        f"Las boletas serán recepcionadas <strong>hasta el día {fecha_limite}, a las {horario_limite}</strong> (plazo impostergable)."
     )
     if tipo != "original":
         titulo = "⏰ Recordatorio: Boleta de Honorarios"
         titulo_color = "#dc3545"
         subtitulo = f"Pendiente de envío para {mes.capitalize()} {año}"
         motivo_texto = (
-            f"Hasta la fecha no hemos recibido la Boleta de Honorarios en formato XML y PDF correspondiente al mes de <strong>{mes.capitalize()}</strong>."
+            f"Hasta la fecha no hemos recibido la Boleta de Honorarios en formato XML y PDF correspondiente al mes de <strong>{mes.capitalize()}</strong>. "
+            f"Le solicitamos enviar la documentación <strong>hasta el día {fecha_limite}, a las {horario_limite}</strong> (plazo impostergable)."
         )
 
     lista_xml = _xml_destinos_html()

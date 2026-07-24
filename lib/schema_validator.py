@@ -103,6 +103,7 @@ SOLICITUD_BASE_COLUMNS: list[str] = [
 # (script 3) y que son requeridas por scripts posteriores.
 SOLICITUD_RECEPCION_COLUMNS: list[str] = [
     "Observaciones",
+    "Observacion_Descartes",
     "archivo_xml",
 ]
 

@@ -1,4 +1,4 @@
-"""Validación de sesiones interactivas (sin envío real)."""
+"""Validación de sesiones interactivas (web supervisada)."""
 from __future__ import annotations
 
 import os
@@ -29,23 +29,34 @@ def test_interactive_stage8_ok_with_map():
     )
 
 
-def test_interactive_stage5_blocks_send_in_web():
-    with pytest.raises(ValueError, match="envío real"):
-        stage_commands.validate_interactive_params(
-            5, {"year": 2026, "month": "Mayo", "send": True}
-        )
+def test_interactive_stage1_allows_send_in_web():
+    stage_commands.validate_interactive_params(
+        1, {"year": 2026, "month": "Mayo", "send": True}
+    )
 
 
-def test_interactive_stage7_blocks_send_in_web():
-    with pytest.raises(ValueError, match="envío real"):
+def test_interactive_stage5_allows_send_in_web():
+    stage_commands.validate_interactive_params(
+        5, {"year": 2026, "month": "Mayo", "send": True}
+    )
+
+
+def test_interactive_stage7_allows_send_in_web():
+    stage_commands.validate_interactive_params(
+        7,
+        {
+            "year": 2026,
+            "month": "Mayo",
+            "send": True,
+            "fecha_pago": "01/05/2026",
+        },
+    )
+
+
+def test_interactive_stage7_requires_fecha_pago_when_send():
+    with pytest.raises(ValueError, match="fecha_pago"):
         stage_commands.validate_interactive_params(
-            7,
-            {
-                "year": 2026,
-                "month": "Mayo",
-                "send": True,
-                "fecha_pago": "01/05/2026",
-            },
+            7, {"year": 2026, "month": "Mayo", "send": True}
         )
 
 

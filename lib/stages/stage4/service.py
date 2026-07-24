@@ -16,6 +16,7 @@ from interaction.exceptions import SessionCancelled
 from interaction.port import InteractionPort
 from stages.context import Stage4Context
 from stages.stage4 import extraction_core as core
+from stages.streamlined import confirm_unless_streamlined
 
 RAIZ = core.RAIZ
 
@@ -31,6 +32,14 @@ class Stage4Service:
             return {"ok": False}
 
         ruta_mes = os.path.join(RAIZ, año, mes)
+        if ctx.month_dir:
+            candidate = ctx.month_dir
+            if not os.path.isabs(candidate):
+                candidate = os.path.join(RAIZ, candidate)
+            ruta_mes = os.path.abspath(candidate)
+            if not os.path.isdir(ruta_mes):
+                ui.log(f"Carpeta no existe: {ruta_mes}", level="error")
+                return {"ok": False}
         mes_num = config.MESES_ES.index(mes) + 1 if mes in config.MESES_ES else 0
         periodo_id = None
         if mes_num > 0:
@@ -47,9 +56,10 @@ class Stage4Service:
         )
         utils.configurar_logging(ruta_log_file)
 
-        ruta_excel = os.path.join(ruta_mes, "Solicitud.xlsx")
+        excel_name = ctx.excel_file or "Solicitud.xlsx"
+        ruta_excel = excel_name if os.path.isabs(excel_name) else os.path.join(ruta_mes, excel_name)
         if not os.path.isfile(ruta_excel):
-            ui.log(f"No se encontró Solicitud.xlsx en {ruta_mes}", level="error")
+            ui.log(f"No se encontró Excel: {ruta_excel}", level="error")
             return {"ok": False}
 
         ui.table(
@@ -63,7 +73,9 @@ class Stage4Service:
             ],
         )
 
-        if not ui.confirm_yes_no(
+        if not confirm_unless_streamlined(
+            ui,
+            ctx.streamlined,
             "Continuar",
             "¿Extraer datos de los XML al Excel?",
             default=False,
@@ -118,10 +130,12 @@ class Stage4Service:
         )
         sobrescribir_ok = self._resolve_overwrite(ui, ctx, hay_datos_ok)
 
-        if ctx.supervised and not ui.confirm_yes_no(
+        if ctx.supervised and not confirm_unless_streamlined(
+            ui,
+            ctx.streamlined,
             "Procesar",
             f"¿Procesar {len(df)} filas de «{hoja}»?",
-            default=False,
+            default=True,
         ):
             return {"ok": False, "cancelled": True}
 
@@ -136,7 +150,9 @@ class Stage4Service:
         except SessionCancelled:
             return {"ok": False, "cancelled": True}
 
-        if ctx.supervised and not ui.confirm_yes_no(
+        if ctx.supervised and not confirm_unless_streamlined(
+            ui,
+            ctx.streamlined,
             "Guardar Excel",
             "¿Guardar Solicitud.xlsx con los datos extraídos?",
             default=True,
@@ -145,6 +161,7 @@ class Stage4Service:
             ui.emit("session.summary", result)
             return result
 
+        ui.log("Guardando Solicitud.xlsx…", level="info")
         saved = core.guardar_excel(df, ruta_excel, hoja, ui)
         result = {"ok": saved, "excel_saved": saved, "log_file": ruta_log_file, **stats}
         ui.emit("session.summary", result)

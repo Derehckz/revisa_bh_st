@@ -8,7 +8,10 @@ from sqlalchemy import String, func, or_, select
 from sqlalchemy.orm import aliased
 
 from db.models import Boleta, BoletaXmlData, Docente, EnvioEmail, Periodo, PipelineRun, PipelineStageRun
+from db.period_sync import ensure_periods_from_disk
 from settings import get_setting
+
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 def _normalized_rut_expr(column):
@@ -27,6 +30,8 @@ def get_period_or_404(session, year: int, month: str) -> Periodo:
 
 
 def list_periods(session) -> list[dict]:
+    raiz = os.path.abspath(get_setting("BH_RAIZ", _REPO_ROOT))
+    ensure_periods_from_disk(raiz)
     rows = session.execute(select(Periodo).order_by(Periodo.anio.desc(), Periodo.mes_num.desc())).scalars().all()
     return [{"id": p.id, "year": p.anio, "month_num": p.mes_num, "month_name": p.mes_nombre, "status": p.estado} for p in rows]
 
@@ -53,6 +58,22 @@ def get_period_summary(session, year: int, month: str) -> dict:
     emails_error = session.execute(
         select(func.count(EnvioEmail.id)).where(EnvioEmail.periodo_id == periodo.id, EnvioEmail.estado == "ERROR")
     ).scalar_one()
+    data_freshness: dict | None
+    try:
+        import sync_status as sync_status_module
+
+        sync = sync_status_module.period_sync_status(year, month)
+        data_freshness = {
+            "status": sync.get("status", "unknown"),
+            "message": sync.get("message", ""),
+            "details": sync.get("details") or None,
+        }
+    except Exception as exc:
+        data_freshness = {
+            "status": "unknown",
+            "message": f"No se pudo evaluar frescura de datos: {exc}",
+            "details": None,
+        }
     return {
         "period": {"id": periodo.id, "year": periodo.anio, "month_num": periodo.mes_num, "month_name": periodo.mes_nombre, "status": periodo.estado},
         "metrics": {
@@ -67,6 +88,7 @@ def get_period_summary(session, year: int, month: str) -> dict:
             "emails_enviados": emails_enviados,
             "emails_error": emails_error,
         },
+        "data_freshness": data_freshness,
     }
 
 
@@ -555,6 +577,28 @@ def get_docente_profile(session, docente_id: int, limit: int) -> dict:
         .group_by(Periodo.id, Periodo.anio, Periodo.mes_num, Periodo.mes_nombre)
         .order_by(Periodo.anio.desc(), Periodo.mes_num.desc())
     ).all()
+    docente_emails = {
+        (docente.email_personal or "").strip().lower(),
+        (docente.email_dp or "").strip().lower(),
+    }
+    docente_emails.discard("")
+    email_filters = [EnvioEmail.docente_id == docente.id]
+    if docente_emails:
+        email_filters.append(func.lower(func.coalesce(EnvioEmail.to_email, "")).in_(docente_emails))
+    email_rows = session.execute(
+        select(EnvioEmail)
+        .where(or_(*email_filters))
+        .order_by(EnvioEmail.id.desc())
+        .limit(200)
+    ).scalars().all()
+    email_total = len(email_rows)
+    email_enviados = len([e for e in email_rows if (e.estado or "").upper() == "ENVIADO"])
+    email_error = len([e for e in email_rows if (e.estado or "").upper() == "ERROR"])
+    tipos: dict[str, int] = {}
+    for e in email_rows:
+        k = (e.tipo_envio or "DESCONOCIDO").upper()
+        tipos[k] = tipos.get(k, 0) + 1
+    ultimo_envio = next((e.sent_at for e in email_rows if e.sent_at is not None), None)
     boletas_count = len(boletas_rows)
     monto_total = sum(float(b.monto_bruto or 0) for b, _ in boletas_rows)
     return {
@@ -595,6 +639,28 @@ def get_docente_profile(session, docente_id: int, limit: int) -> dict:
                 "monto_total": float(total or 0),
             }
             for period_id, year, month_num, month_name, count, total in period_stats_rows
+        ],
+        "email_summary": {
+            "total": email_total,
+            "enviados": email_enviados,
+            "error": email_error,
+            "pendientes": max(0, email_total - email_enviados - email_error),
+            "ultimo_envio": ultimo_envio.isoformat() if ultimo_envio else None,
+            "tipos": tipos,
+        },
+        "recent_emails": [
+            {
+                "id": e.id,
+                "tipo_envio": e.tipo_envio,
+                "to_email": e.to_email,
+                "cc_email": e.cc_email,
+                "subject": e.subject,
+                "estado": e.estado,
+                "error_detalle": e.error_detalle,
+                "periodo_label": e.periodo_label,
+                "sent_at": e.sent_at.isoformat() if e.sent_at else None,
+            }
+            for e in email_rows[:20]
         ],
     }
 
@@ -708,4 +774,74 @@ def get_docente_metrics(session, docente_id: int, year: int | None, month: str |
             "monto_total": monto_total,
             "monto_promedio": round(monto_total / total, 2) if total else 0.0,
         },
+    }
+
+
+def list_docente_emails(
+    session,
+    docente_id: int,
+    *,
+    tipo: str | None,
+    estado: str | None,
+    limit: int,
+    offset: int,
+) -> dict:
+    safe_limit = max(1, min(limit, 500))
+    safe_offset = max(0, offset)
+    docente = session.execute(select(Docente).where(Docente.id == docente_id)).scalar_one_or_none()
+    if docente is None:
+        raise HTTPException(status_code=404, detail=f"Docente {docente_id} no encontrado")
+
+    docente_emails = {
+        (docente.email_personal or "").strip().lower(),
+        (docente.email_dp or "").strip().lower(),
+    }
+    docente_emails.discard("")
+    base_filters = [EnvioEmail.docente_id == docente.id]
+    if docente_emails:
+        base_filters.append(func.lower(func.coalesce(EnvioEmail.to_email, "")).in_(docente_emails))
+
+    query = select(EnvioEmail).where(or_(*base_filters))
+    total_query = select(func.count(EnvioEmail.id)).where(or_(*base_filters))
+
+    tipo_norm = tipo.strip().upper() if tipo else None
+    estado_norm = estado.strip().upper() if estado else None
+    if tipo_norm:
+        query = query.where(func.coalesce(EnvioEmail.tipo_envio, "") == tipo_norm)
+        total_query = total_query.where(func.coalesce(EnvioEmail.tipo_envio, "") == tipo_norm)
+    if estado_norm:
+        query = query.where(func.coalesce(EnvioEmail.estado, "") == estado_norm)
+        total_query = total_query.where(func.coalesce(EnvioEmail.estado, "") == estado_norm)
+
+    total = session.execute(total_query).scalar_one()
+    rows = session.execute(query.order_by(EnvioEmail.id.desc()).limit(safe_limit).offset(safe_offset)).scalars().all()
+
+    docente_payload = {
+        "id": docente.id,
+        "rut": docente.rut,
+        "nombre_completo": docente.nombre_completo,
+        "sede": docente.sede,
+        "email_personal": docente.email_personal,
+        "email_dp": docente.email_dp,
+        "boletas_count": 0,
+        "monto_total": 0.0,
+    }
+    return {
+        "docente": docente_payload,
+        "pagination": {"total": total, "limit": safe_limit, "offset": safe_offset, "returned": len(rows)},
+        "filters": {"tipo": tipo_norm, "estado": estado_norm},
+        "data": [
+            {
+                "id": e.id,
+                "tipo_envio": e.tipo_envio,
+                "to_email": e.to_email,
+                "cc_email": e.cc_email,
+                "subject": e.subject,
+                "estado": e.estado,
+                "error_detalle": e.error_detalle,
+                "periodo_label": e.periodo_label,
+                "sent_at": e.sent_at.isoformat() if e.sent_at else None,
+            }
+            for e in rows
+        ],
     }

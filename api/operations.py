@@ -17,11 +17,30 @@ import stage_interactive_options
 import stage_operations
 import stage_ui_guides
 from settings import get_setting
+from period_lock import PeriodLock, PeriodLockError
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _JOBS: dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
 _LOADED = False
+# Locks de período por job_id (no persistidos; viven mientras el proceso API esté arriba).
+_JOB_LOCKS: dict[str, PeriodLock] = {}
+_JOB_LOCKS_LOCK = threading.Lock()
+
+
+def _store_job_lock(job_id: str, lock: PeriodLock) -> None:
+    with _JOB_LOCKS_LOCK:
+        _JOB_LOCKS[job_id] = lock
+
+
+def _release_job_lock(job_id: str) -> None:
+    with _JOB_LOCKS_LOCK:
+        lock = _JOB_LOCKS.pop(job_id, None)
+    if lock is not None:
+        try:
+            lock.release()
+        except Exception:
+            pass
 
 
 class StageNotEnabledError(ValueError):
@@ -138,6 +157,22 @@ def list_stage_options(stage_num: int, year: int, month: str) -> dict:
     base["guide"] = stage_ui_guides.get_stage_guide(stage_num)
     base["choices"] = stage_interactive_options.build_interactive_choices(stage_num, year, month)
 
+    if stage_num in stage_commands.EMAIL_STAGES or stage_num == 2:
+        try:
+            from outlook_utils import check_outlook_health
+
+            base["outlook_health"] = check_outlook_health(probe_com=True)
+        except Exception as e:
+            base["outlook_health"] = {
+                "ready": False,
+                "process_running": False,
+                "exe_found": False,
+                "com_ok": None,
+                "can_auto_launch": False,
+                "message": f"No se pudo comprobar Outlook: {e}",
+                "required_for_stages": [1, 2, 5, 7],
+            }
+
     if stage_num == 0:
         opts = list_step0_options(year, month)
         base.update(opts)
@@ -156,6 +191,21 @@ def period_overview(year: int, month: str) -> dict:
     _ensure_jobs_loaded()
     jobs = _jobs_for_period(year, month, limit=80)
     return stage_operations.period_overview(year, month, jobs=jobs)
+
+
+def excel_avance(year: int, month: str, *, row_limit: int = 500) -> dict:
+    return stage_operations.excel_avance(year, month, row_limit=row_limit)
+
+
+def period_sync_status(year: int, month: str, *, refresh: bool = False) -> dict:
+    """E5/E11: estado de sincronización Excel↔PostgreSQL, con refresco opcional."""
+    if refresh:
+        import sync_projector
+
+        return sync_projector.apply_hints(year, month, {"ensure_periods_from_disk": True})
+    import sync_status
+
+    return sync_status.period_sync_status(year, month)
 
 
 def _jobs_for_period(year: int | str, month: str, limit: int = 80) -> list[dict]:
@@ -294,6 +344,7 @@ def _run_job(job_id: str, cmd: list[str], cwd: str, log_path: str, env: dict[str
                 job["return_code"] = return_code
                 job["finished_at"] = finished
                 _persist_job(job)
+        _release_job_lock(job_id)
         log_file.write(f"\n[{finished}] END return_code={return_code}\n")
 
 
@@ -328,52 +379,67 @@ def start_stage_job(stage_num: int, params: dict[str, Any]) -> dict:
             f"(id={running['id']}, paso {running.get('stage_num')}). Espere a que termine."
         )
 
-    merged = dict(params)
-    merged.setdefault("year", year)
-    merged.setdefault("month", month)
+    period_lock = PeriodLock(year, month, script=f"job-stage{stage_num}")
+    try:
+        period_lock.acquire()
+    except PeriodLockError as exc:
+        raise PeriodLockError(
+            f"No se puede iniciar el job: período {month} {year} está bloqueado "
+            f"por otra ejecución en curso ({exc})"
+        ) from exc
 
-    cmd = stage_commands.build_stage_command(
-        _REPO_ROOT,
-        stage_num,
-        year=year,
-        month=month,
-        params=merged,
-        api_mode=True,
-    )
+    try:
+        merged = dict(params)
+        merged.setdefault("year", year)
+        merged.setdefault("month", month)
 
-    jobs_dir = _jobs_dir()
-    job_id = uuid.uuid4().hex[:12]
-    log_path = os.path.join(jobs_dir, f"{job_id}.log")
+        cmd = stage_commands.build_stage_command(
+            _REPO_ROOT,
+            stage_num,
+            year=year,
+            month=month,
+            params=merged,
+            api_mode=True,
+        )
 
-    env = os.environ.copy()
-    env["BH_NON_INTERACTIVE"] = "1"
-    env["BH_YEAR"] = str(year)
-    env["BH_MONTH"] = str(month)
+        jobs_dir = _jobs_dir()
+        job_id = uuid.uuid4().hex[:12]
+        log_path = os.path.join(jobs_dir, f"{job_id}.log")
 
-    job = {
-        "id": job_id,
-        "stage_num": stage_num,
-        "type": _job_type(stage_num),
-        "status": "running",
-        "year": int(year) if str(year).isdigit() else year,
-        "month": month,
-        "params": {k: v for k, v in merged.items() if k not in ("ruta_bd",)},
-        "cmd": cmd,
-        "created_at": datetime.now(UTC).isoformat(),
-        "log_path": log_path,
-        "pid": None,
-        "return_code": None,
-        "finished_at": None,
-        # Campos legacy paso 0 (compatibilidad front)
-        "maestro_file": merged.get("maestro_file", ""),
-        "bd_file": merged.get("bd_file", ""),
-        "output_file": merged.get("output_file") or "Solicitud.xlsx",
-    }
+        env = os.environ.copy()
+        env["BH_NON_INTERACTIVE"] = "1"
+        env["BH_YEAR"] = str(year)
+        env["BH_MONTH"] = str(month)
 
-    out_path = stage_commands.primary_output_for_stage(stage_num, year, month, merged)
-    if out_path:
-        job["output_path"] = out_path
-        job["output_file"] = os.path.basename(out_path)
+        job = {
+            "id": job_id,
+            "stage_num": stage_num,
+            "type": _job_type(stage_num),
+            "status": "running",
+            "year": int(year) if str(year).isdigit() else year,
+            "month": month,
+            "params": {k: v for k, v in merged.items() if k not in ("ruta_bd",)},
+            "cmd": cmd,
+            "created_at": datetime.now(UTC).isoformat(),
+            "log_path": log_path,
+            "pid": None,
+            "return_code": None,
+            "finished_at": None,
+            # Campos legacy paso 0 (compatibilidad front)
+            "maestro_file": merged.get("maestro_file", ""),
+            "bd_file": merged.get("bd_file", ""),
+            "output_file": merged.get("output_file") or "Solicitud.xlsx",
+        }
+
+        out_path = stage_commands.primary_output_for_stage(stage_num, year, month, merged)
+        if out_path:
+            job["output_path"] = out_path
+            job["output_file"] = os.path.basename(out_path)
+    except Exception:
+        period_lock.release()
+        raise
+
+    _store_job_lock(job_id, period_lock)
 
     with _JOBS_LOCK:
         _JOBS[job_id] = job

@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 
 export function ErrorState({
@@ -7,21 +7,21 @@ export function ErrorState({
   onRetry,
 }: {
   title: string;
-  description: string;
+  description?: string;
   onRetry?: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-8 text-center">
-      <div className="rounded-full bg-red-100 p-2">
-        <AlertTriangle size={18} className="text-red-600" />
+    <div className="flex items-start gap-3 rounded-lg border border-danger/25 bg-danger/5 px-4 py-3">
+      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-danger" strokeWidth={1.75} />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold tracking-tight text-foreground">{title}</p>
+        {description ? <p className="mt-0.5 text-sm text-muted-foreground">{description}</p> : null}
+        {onRetry ? (
+          <Button variant="outline" size="sm" className="mt-2" onClick={onRetry}>
+            Reintentar
+          </Button>
+        ) : null}
       </div>
-      <p className="font-semibold text-red-900">{title}</p>
-      <p className="max-w-xl text-sm text-red-800">{description}</p>
-      {onRetry && (
-        <Button variant="outline" onClick={onRetry}>
-          Reintentar
-        </Button>
-      )}
     </div>
   );
 }

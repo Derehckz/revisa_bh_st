@@ -9,95 +9,71 @@ type Props = {
   onSelect: (stageNum: number) => void;
 };
 
+const SHORT: Record<number, string> = {
+  0: "Generar Solicitud",
+  1: "Enviar correos",
+  2: "Bajar boletas",
+  3: "Marcar recibidos",
+  4: "Completar datos",
+  5: "Correo recepción",
+  6: "Cruzar pagos",
+  7: "Correo pago",
+  8: "Clasificar",
+  9: "Nómina",
+  10: "Cerrar mes",
+};
+
 const STATUS_DOT: Record<StageUiStatus, string> = {
-  READY: "bg-slate-400",
-  BLOCKED: "bg-amber-500",
-  RUNNING: "bg-blue-500 animate-pulse",
-  OK: "bg-green-600",
-  ERROR: "bg-red-600",
+  READY: "bg-muted-foreground/35",
+  BLOCKED: "bg-warning",
+  RUNNING: "bg-primary animate-pulse",
+  OK: "bg-success",
+  ERROR: "bg-danger",
 };
-
-const STATUS_LABEL: Record<StageUiStatus, string> = {
-  READY: "Listo",
-  BLOCKED: "Bloqueado",
-  RUNNING: "En curso",
-  OK: "Hecho",
-  ERROR: "Error",
-};
-
-function shortDescription(desc: string, max = 42) {
-  if (desc.length <= max) return desc;
-  return `${desc.slice(0, max)}…`;
-}
 
 export function PipelineSidebar({ stages, overviewStages, activeStage, suggestedStageNum, onSelect }: Props) {
   const overviewByNum = new Map(overviewStages?.map((s) => [s.stage_num, s]) ?? []);
   const sorted = [...stages].sort((a, b) => a.stage_num - b.stage_num);
 
   return (
-    <nav className="space-y-1" aria-label="Pasos del pipeline">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Pasos 0–10</p>
+    <nav className="space-y-0.5" aria-label="Pasos">
+      <p className="mb-2 px-2 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        Pasos
+      </p>
       {sorted.map((s) => {
         const ov = overviewByNum.get(s.stage_num);
         const uiStatus = ov?.ui_status ?? (s.enabled_for_api ? "READY" : "BLOCKED");
         const isActive = s.stage_num === activeStage;
         const isSuggested = suggestedStageNum != null && s.stage_num === suggestedStageNum;
+        const label = SHORT[s.stage_num] ?? s.description;
         return (
           <button
             key={s.stage_num}
             type="button"
             onClick={() => onSelect(s.stage_num)}
             className={cn(
-              "flex w-full items-start gap-2 rounded-md border px-2 py-2 text-left text-sm transition-colors",
-              isActive ? "border-primary bg-primary/10" : "border-transparent hover:bg-muted",
-              isSuggested && !isActive && "ring-1 ring-primary/50"
+              "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[0.8125rem] font-medium tracking-tight transition-colors",
+              isActive
+                ? "bg-card text-foreground shadow-xs"
+                : "text-muted-foreground hover:bg-card/70 hover:text-foreground",
+              isSuggested && !isActive && "ring-1 ring-primary/25"
             )}
           >
             <span
-              className={cn("mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full", STATUS_DOT[uiStatus])}
-              title={STATUS_LABEL[uiStatus]}
+              className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[uiStatus])}
+              aria-hidden
             />
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center justify-between gap-1">
-                <span className="font-medium">Paso {s.stage_num}</span>
-                {uiStatus === "OK" && (
-                  <span className="text-[10px] font-medium text-green-700 shrink-0">OK</span>
-                )}
-                {uiStatus === "ERROR" && (
-                  <span className="text-[10px] font-medium text-red-700 shrink-0">Error</span>
-                )}
-              </span>
-              <span className="block text-xs text-muted-foreground line-clamp-2">
-                {shortDescription(s.description)}
-              </span>
-              {ov?.last_job && (uiStatus === "OK" || uiStatus === "ERROR") && (
-                <span className="block text-[10px] text-muted-foreground truncate" title={ov.last_job.label}>
-                  {ov.last_job.source === "filesystem" ? "Consola" : "Web"}
-                  {ov.last_job.created_at
-                    ? ` · ${new Date(ov.last_job.created_at).toLocaleDateString("es-CL")}`
-                    : ""}
-                </span>
-              )}
+            <span className="min-w-0 flex-1 truncate">
+              <span className="tabular-nums text-muted-foreground">{s.stage_num}</span>
+              <span className="mx-1 text-border">·</span>
+              {label}
             </span>
+            {uiStatus === "OK" && !isActive && (
+              <span className="text-2xs font-semibold text-success">OK</span>
+            )}
           </button>
         );
       })}
-      <div className="mt-3 space-y-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
-        <p className="font-medium">Leyenda</p>
-        <LegendItem color={STATUS_DOT.READY} label="Listo para ejecutar" />
-        <LegendItem color={STATUS_DOT.BLOCKED} label="Faltan requisitos" />
-        <LegendItem color={STATUS_DOT.OK} label="Última ejecución OK" />
-        <LegendItem color={STATUS_DOT.ERROR} label="Última ejecución falló" />
-      </div>
     </nav>
-  );
-}
-
-function LegendItem({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className={cn("h-2 w-2 rounded-full", color)} />
-      {label}
-    </span>
   );
 }

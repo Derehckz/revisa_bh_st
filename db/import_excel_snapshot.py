@@ -39,12 +39,12 @@ OPTIONAL_XML_COLUMNS = {
 
 
 def detect_solicitud_sheet(path: str) -> str:
-    xls = pd.ExcelFile(path, engine="openpyxl")
-    for sheet in xls.sheet_names:
-        df0 = pd.read_excel(path, sheet_name=sheet, engine="openpyxl", nrows=0)
-        cols = set(map(str, df0.columns))
-        if BASE_REQUIRED_SOLICITUD_COLUMNS.issubset(cols):
-            return sheet
+    with pd.ExcelFile(path, engine="openpyxl") as xls:
+        for sheet in xls.sheet_names:
+            df0 = pd.read_excel(xls, sheet_name=sheet, nrows=0)
+            cols = set(map(str, df0.columns))
+            if BASE_REQUIRED_SOLICITUD_COLUMNS.issubset(cols):
+                return sheet
     raise ValueError("No se encontró hoja con columnas mínimas operativas de Solicitud.")
 
 

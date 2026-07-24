@@ -74,6 +74,7 @@ class Stage7Service:
 
         if "Correo Enviado" not in df.columns:
             df["Correo Enviado"] = ""
+        df["Correo Enviado"] = df["Correo Enviado"].fillna("").astype(object)
 
         ui.emit(
             "analysis.ready",

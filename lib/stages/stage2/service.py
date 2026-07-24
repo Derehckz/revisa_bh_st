@@ -9,6 +9,7 @@ from interaction.port import InteractionPort
 from outlook_utils import conectar_outlook_ns, filtrar_correos_por_fecha
 from stages.context import Stage2Context
 from stages.stage2 import extraction as ext
+from stages.streamlined import confirm_unless_streamlined
 
 MESES_ES = ext.MESES_ES
 FORMATO_FECHA_INPUT = ext.FORMATO_FECHA_INPUT
@@ -35,10 +36,12 @@ class Stage2Service:
                 ("Carpeta mes", carpeta_mes),
                 ("Desde", fecha_inicio.strftime("%d/%m/%Y %H:%M")),
                 ("Hasta", fecha_fin.strftime("%d/%m/%Y %H:%M")),
-                ("Simulación (dry-run)", "Sí" if ctx.dry_run else "No"),
+                ("Simulación (sin guardar archivos)", "Sí" if ctx.dry_run else "No"),
             ],
         )
-        if not ui.confirm_yes_no(
+        if not confirm_unless_streamlined(
+            ui,
+            ctx.streamlined,
             "Continuar",
             "¿Extraer adjuntos del buzón en ese rango de fechas?",
             default=False,
@@ -47,14 +50,33 @@ class Stage2Service:
             return {"ok": False, "cancelled": True}
 
         log_file = ext.configurar_logging(fecha_inicio)
-        ui.log("Conectando a Outlook…", level="info")
+        ui.log("Conectando a Outlook… Si está cerrado, se abrirá solo.", level="info")
 
         try:
-            outlook_ns = conectar_outlook_ns()
+            bus = getattr(ui, "_bus", None)
+            if bus is None:
+                inner = getattr(ui, "_inner", None)
+                bus = getattr(inner, "_bus", None)
+
+            def cancel_check() -> bool:
+                return bool(getattr(bus, "cancelled", False)) if bus is not None else False
+
+            outlook_ns = conectar_outlook_ns(
+                ensure_running=True,
+                wait_s=60,
+                cancel_check=cancel_check if bus is not None else None,
+                progress_log=lambda m: ui.log(m, level="info"),
+            )
             bandeja = outlook_ns.GetDefaultFolder(6)
             mensajes = filtrar_correos_por_fecha(bandeja, fecha_inicio, fecha_fin)
+        except SessionCancelled:
+            ui.log("Cancelado mientras se abría Outlook.", level="warning")
+            return {"ok": False, "cancelled": True}
         except Exception as e:
-            ui.log(f"Error Outlook: {e}", level="error")
+            ui.log(
+                f"Error Outlook: {e}. Ábrelo manualmente si no arrancó solo y reintenta.",
+                level="error",
+            )
             return {"ok": False, "error": str(e)}
 
         if not mensajes:
@@ -85,17 +107,21 @@ class Stage2Service:
             ui.log("No hay adjuntos bhe_ con PDF y XML para guardar.", level="warning")
             return {"ok": True, "emails": emails_ok, "guardados": 0}
 
-        if not ui.confirm_yes_no(
+        if not confirm_unless_streamlined(
+            ui,
+            ctx.streamlined,
             "Guardar archivos",
             f"¿Proceder a guardar {len(rutas)} adjunto(s)?",
-            default=False,
+            default=True,
         ):
             ui.log("Guardado cancelado.", level="warning")
             return {"ok": False, "cancelled": True}
 
         try:
             politica = ext.decidir_politica_duplicados(
-                ui, duplicados, preset=ctx.duplicate_policy
+                ui,
+                duplicados,
+                preset=ctx.duplicate_policy or ("I" if ctx.streamlined else None),
             )
         except SessionCancelled:
             ui.log("Cancelado.", level="warning")
@@ -118,7 +144,7 @@ class Stage2Service:
         )
 
         if ctx.dry_run:
-            ui.log("[DRY-RUN] No se escribieron archivos.", level="warning")
+            ui.log("Simulación: no se escribieron archivos.", level="warning")
         else:
             ui.log("Proceso finalizado.", level="success")
 

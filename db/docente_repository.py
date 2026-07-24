@@ -30,11 +30,11 @@ def _pick(row: dict, *keys: str) -> str:
 def sync_docentes_from_excel(path: str) -> dict:
     stats = {"inserted": 0, "updated": 0, "total_rows": 0}
     try:
-        xls = pd.ExcelFile(path, engine="openpyxl")
+        with pd.ExcelFile(path, engine="openpyxl") as xls:
+            sheet = "Solicitud" if "Solicitud" in xls.sheet_names else xls.sheet_names[0]
     except Exception:
         return stats
 
-    sheet = "Solicitud" if "Solicitud" in xls.sheet_names else xls.sheet_names[0]
     try:
         df = pd.read_excel(path, sheet_name=sheet, engine="openpyxl")
     except Exception:

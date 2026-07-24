@@ -16,7 +16,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const push = useCallback((title: string, tone: ToastTone = "info") => {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     setItems((prev) => [...prev, { id, title, tone }]);
-    setTimeout(() => setItems((prev) => prev.filter((i) => i.id !== id)), 3000);
+    setTimeout(() => setItems((prev) => prev.filter((i) => i.id !== id)), 3200);
   }, []);
 
   const value = useMemo(() => ({ push }), [push]);
@@ -29,13 +29,21 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           {items.map((item) => (
             <motion.div
               key={item.id}
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              className="rounded-md border border-border bg-card px-3 py-2 text-sm shadow-card"
+              initial={{ opacity: 0, y: -6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.98 }}
+              className="min-w-[220px] max-w-sm rounded-lg border border-border bg-card/95 px-3.5 py-2.5 text-sm shadow-elevated backdrop-blur-md"
               role="status"
             >
-              <span className={item.tone === "error" ? "text-red-600" : item.tone === "success" ? "text-green-600" : ""}>
+              <span
+                className={
+                  item.tone === "error"
+                    ? "font-medium text-danger"
+                    : item.tone === "success"
+                      ? "font-medium text-success"
+                      : "font-medium text-foreground"
+                }
+              >
                 {item.title}
               </span>
             </motion.div>

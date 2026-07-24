@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Calendar } from "lucide-react";
 import { clToIso, isoToCl } from "@/shared/lib/period-dates";
 import { cn } from "@/shared/lib/utils";
@@ -24,45 +25,57 @@ export function DateInput({
   placeholder = "dd/mm/aaaa",
   className,
 }: Props) {
+  const pickerRef = useRef<HTMLInputElement>(null);
   const isoValue = clToIso(value);
 
+  function openPicker() {
+    if (disabled) return;
+    const el = pickerRef.current;
+    if (!el) return;
+    el.showPicker?.();
+    el.focus();
+  }
+
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    <div className={cn("relative", className)}>
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        className="min-w-[8.5rem] flex-1"
+        className="pr-9"
         inputMode="numeric"
         aria-label="Fecha en formato dd/mm/aaaa"
       />
-      <div className="relative shrink-0">
-        <Calendar
-          size={16}
-          className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <input
-          type="date"
-          value={isoValue}
-          min={minIso}
-          max={maxIso}
-          disabled={disabled}
-          title="Elegir fecha en calendario"
-          className={cn(
-            "h-9 rounded-md border border-border bg-card pl-8 pr-2 text-sm outline-none",
-            "transition focus-visible:ring-2 focus-visible:ring-ring",
-            "disabled:cursor-not-allowed disabled:opacity-50",
-            "[color-scheme:light]"
-          )}
-          onChange={(e) => {
-            const next = e.target.value;
-            if (!next) return;
-            onChange(isoToCl(next));
-          }}
-        />
-      </div>
+      <button
+        type="button"
+        disabled={disabled}
+        title="Abrir calendario"
+        className={cn(
+          "absolute right-1 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground",
+          "hover:bg-muted hover:text-foreground",
+          "disabled:pointer-events-none disabled:opacity-50"
+        )}
+        onClick={openPicker}
+      >
+        <Calendar size={16} aria-hidden />
+      </button>
+      <input
+        ref={pickerRef}
+        type="date"
+        tabIndex={-1}
+        aria-hidden
+        value={isoValue}
+        min={minIso}
+        max={maxIso}
+        disabled={disabled}
+        className="pointer-events-none absolute h-0 w-0 opacity-0"
+        onChange={(e) => {
+          const next = e.target.value;
+          if (!next) return;
+          onChange(isoToCl(next));
+        }}
+      />
     </div>
   );
 }

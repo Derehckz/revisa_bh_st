@@ -50,13 +50,13 @@ export function ExecutionHistoryPanel({
   }, [entries]);
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando historial desde logs en disco…</p>;
+    return <p className="text-sm text-muted-foreground">Cargando historial…</p>;
   }
 
   if (!entries.length) {
     return (
       <p className="text-sm text-muted-foreground">
-        No se encontraron ejecuciones en el rango seleccionado (revisa carpetas logs_* bajo cada mes).
+        No se encontraron ejecuciones en el rango seleccionado.
       </p>
     );
   }

@@ -10,7 +10,10 @@ type ConfigContextValue = {
 const AppConfigContext = createContext<ConfigContextValue | null>(null);
 
 const defaultBaseUrl = localStorage.getItem("bh_base_url") || "http://127.0.0.1:8000";
-const defaultApiKey = localStorage.getItem("bh_api_key") || "boletas_api_local_2026_change_me";
+// E12: nunca cachear una API key "por defecto" que funcione en silencio. Si no
+// hay nada guardado en localStorage, arranca vacía y obliga a configurarla en
+// Ajustes; evita que un valor de ejemplo del repo termine autenticando en prod.
+const defaultApiKey = localStorage.getItem("bh_api_key") || "";
 
 export function AppConfigProvider({ children }: { children: React.ReactNode }) {
   const [baseUrl, _setBaseUrl] = useState(defaultBaseUrl);

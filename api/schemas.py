@@ -48,9 +48,18 @@ class PeriodSummaryMetrics(BaseModel):
     emails_error: int
 
 
+class DataFreshness(BaseModel):
+    """E11: frescura Excel↔PG para pantallas de consulta."""
+
+    status: str  # ok | degraded | unknown
+    message: str = ""
+    details: dict | None = None
+
+
 class PeriodSummaryResponse(BaseModel):
     period: PeriodItem
     metrics: PeriodSummaryMetrics
+    data_freshness: DataFreshness | None = None
 
 
 class BoletaListItem(BaseModel):
@@ -242,15 +251,33 @@ class DocentePeriodStat(BaseModel):
     monto_total: float
 
 
+class DocenteEmailSummary(BaseModel):
+    total: int
+    enviados: int
+    error: int
+    pendientes: int
+    ultimo_envio: str | None
+    tipos: dict[str, int]
+
+
 class DocenteProfileResponse(BaseModel):
     docente: DocenteItem
     boletas: list[BoletaListItem]
     period_stats: list[DocentePeriodStat]
+    email_summary: DocenteEmailSummary
+    recent_emails: list[EmailItem]
 
 
 class DocenteMetricsResponse(BaseModel):
     docente: DocenteItem
     metrics: dict
+
+
+class DocenteEmailsResponse(BaseModel):
+    docente: DocenteItem
+    pagination: Pagination
+    filters: dict
+    data: list[EmailItem]
 
 
 class StageStartRequest(BaseModel):

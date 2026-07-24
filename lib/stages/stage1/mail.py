@@ -9,7 +9,8 @@ from typing import Any
 import config
 import email_outbox
 import email_templates as templates
-import idempotency_store
+import mail_ledger
+import idempotency_store  # compat
 import reminder_policy
 import utils
 from db import email_repository
@@ -22,6 +23,12 @@ import bh_outlook_mail
 _parse_recordatorio_count = reminder_policy.parse_recordatorio_count
 
 
+def es_glosa_provisionado(glosa: object) -> bool:
+    """True si la GLOSA marca fila de arrastre/provisión (debe tener correo propio)."""
+    text = str(glosa or "").lower()
+    return any(p in text for p in ("provisionado", "provisonado", "provs"))
+
+
 def build_mail_item_key(
     año: int,
     mes: str,
@@ -30,9 +37,20 @@ def build_mail_item_key(
     email: str,
     *,
     recordatorio_num: int | None = None,
+    provisionado: bool = False,
+    glosa: object | None = None,
 ) -> str:
+    """
+    Clave de idempotencia del correo de solicitud.
+
+    Incluye `|prov` cuando la fila es provisionada, para no colisionar con la
+    boleta normal del mismo docente/mes/RUT razón (arrastre crea fila aparte).
+    """
     rr = utils.normalizar_rut_con_dv(rut_razon)
     base = f"{año}|{mes}|{rut_docente}|{rr}|{email}".lower()
+    is_prov = bool(provisionado) or (glosa is not None and es_glosa_provisionado(glosa))
+    if is_prov:
+        base = f"{base}|prov"
     if recordatorio_num is not None:
         return f"{base}|r{recordatorio_num}"
     return base
@@ -88,6 +106,10 @@ def enviar_correos(
     allow_send: bool = True,
     supervision_mode: SupervisionMode = SupervisionMode.BATCH,
     outbox_ids_by_index: dict[int, int] | None = None,
+    fecha_limite_recepcion: str | None = None,
+    horario_recepcion: str | None = None,
+    fecha_limite_recordatorio: str | None = None,
+    horario_recordatorio: str | None = None,
 ) -> dict[str, int]:
     """Envía correos; devuelve contadores {sent, skipped, failed, omitted}."""
     stats = {"sent": 0, "skipped": 0, "failed": 0, "omitted": 0}
@@ -129,6 +151,10 @@ def enviar_correos(
                 email_dp=email_dp,
                 mes=mes,
                 año=año,
+                fecha_limite_recepcion=fecha_limite_recepcion,
+                horario_recepcion=horario_recepcion,
+                fecha_limite_recordatorio=fecha_limite_recordatorio,
+                horario_recordatorio=horario_recordatorio,
             )
 
             cc_list = [config.EMAIL_XML_2] if config.EMAIL_XML_2 else []
@@ -145,16 +171,26 @@ def enviar_correos(
             if tipo == "recordatorio":
                 recordatorio_num = _parse_recordatorio_count(df.at[idx, "Recordatorios Enviados"]) + 1
                 item_key = build_mail_item_key(
-                    año, mes, rut_docente, rut_razon, email, recordatorio_num=recordatorio_num
+                    año,
+                    mes,
+                    rut_docente,
+                    rut_razon,
+                    email,
+                    recordatorio_num=recordatorio_num,
+                    glosa=glosa,
                 )
             else:
-                item_key = build_mail_item_key(año, mes, rut_docente, rut_razon, email)
+                item_key = build_mail_item_key(
+                    año, mes, rut_docente, rut_razon, email, glosa=glosa
+                )
 
-            already_sent = not force_resend and idempotency_store.was_success(stage_id, item_key)
+            already_sent = not force_resend and mail_ledger.was_sent(stage_id, item_key)
             if already_sent:
-                df.at[idx, columna_envio] = f"⏭ Omitido por idempotencia ({tipo})"
+                label = "provisionado" if es_glosa_provisionado(glosa) else tipo
+                df.at[idx, columna_envio] = f"⏭ Omitido por idempotencia ({label})"
                 ui.log(
-                    f"Omitido (idempotencia): {email} RUT razón {rut_razon}",
+                    f"Omitido (idempotencia): {email} RUT razón {rut_razon}"
+                    + (" [provisionado]" if es_glosa_provisionado(glosa) else ""),
                     level="warning",
                 )
                 stats["omitted"] += 1
@@ -189,13 +225,13 @@ def enviar_correos(
                     ui.emit("mail.skipped", {"index": int(idx), "email": email})
                     continue
 
-            if idempotency_store.report_duplicate("script1.mail_attempt", item_key):
+            if mail_ledger.report_attempt("script1.mail_attempt", item_key):
                 logging.warning(f"Reintento detectado (solo reporte): {item_key}")
 
             if outbox_ids_by_index is not None and idx in outbox_ids_by_index:
                 ob_id = outbox_ids_by_index[idx]
             else:
-                ob_id = email_outbox.record_pending(
+                ob_id = mail_ledger.record_pending(
                     stage_id, item_key, {"tipo": tipo, "to": email, "asunto": asunto}
                 )
 
@@ -213,7 +249,7 @@ def enviar_correos(
             )
 
             if enviado:
-                email_outbox.mark_sent(ob_id)
+                mail_ledger.mark_outbox_sent(ob_id)
                 if tipo == "original":
                     df.at[idx, columna_envio] = "✅ Enviado (original)"
                 else:
@@ -221,7 +257,7 @@ def enviar_correos(
                     new_count = prev_count + 1
                     df.at[idx, "Recordatorios Enviados"] = new_count
                     df.at[idx, columna_envio] = f"✅ Enviado (recordatorio #{new_count})"
-                idempotency_store.mark_success(stage_id, item_key, details=f"asunto={asunto}")
+                mail_ledger.mark_sent(stage_id, item_key, details=f"asunto={asunto}")
                 ui.log(f"Correo ({tipo}) enviado a {email} (fila {idx + 1})", level="success")
                 ui.emit("mail.sent", {"index": int(idx), "email": email, "tipo": tipo})
                 email_repository.save_email_event(
@@ -234,7 +270,7 @@ def enviar_correos(
                 )
                 stats["sent"] += 1
             else:
-                email_outbox.mark_failed(ob_id, "No se pudo enviar después de 3 intentos")
+                mail_ledger.mark_outbox_failed(ob_id, "No se pudo enviar después de 3 intentos")
                 df.at[idx, columna_envio] = f"❌ Error envío ({tipo})"
                 ui.log(f"Error envío ({tipo}) a {email} (fila {idx + 1})", level="error")
                 ui.emit("mail.failed", {"index": int(idx), "email": email, "tipo": tipo})

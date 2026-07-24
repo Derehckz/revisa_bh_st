@@ -350,6 +350,26 @@ def docente_metrics(
         return services.get_docente_metrics(session, docente_id, year, month)
 
 
+@app.get("/docentes/{docente_id}/emails", response_model=schemas.DocenteEmailsResponse)
+def docente_emails(
+    docente_id: int = Path(..., ge=1),
+    tipo: str | None = Query(default=None, min_length=3, max_length=32),
+    estado: str | None = Query(default=None, min_length=3, max_length=16),
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=100000),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    with SessionLocal() as session:
+        return services.list_docente_emails(
+            session,
+            docente_id,
+            tipo=tipo,
+            estado=estado,
+            limit=limit,
+            offset=offset,
+        )
+
+
 @app.get("/operations/stages")
 def operations_stages_list(_: None = Depends(security.require_api_key)) -> dict:
     return operations.list_stages()
@@ -362,6 +382,26 @@ def operations_period_overview(
     _: None = Depends(security.require_api_key),
 ) -> dict:
     return operations.period_overview(year, month)
+
+
+@app.get("/operations/period/excel-avance")
+def operations_period_excel_avance(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    row_limit: int = Query(500, ge=0, le=2000),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return operations.excel_avance(year, month, row_limit=row_limit)
+
+
+@app.get("/operations/period/sync-status")
+def operations_period_sync_status(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    refresh: bool = Query(default=False),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return operations.period_sync_status(year, month, refresh=refresh)
 
 
 @app.get("/operations/stages/{stage_num}/options")
@@ -388,6 +428,8 @@ def operations_stage_start(
         return operations.start_stage_job(stage_num, payload)
     except operations.StageNotEnabledError as exc:
         raise HTTPException(status_code=501, detail=str(exc))
+    except operations.PeriodLockError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except ValueError as exc:
@@ -424,6 +466,10 @@ def step0_start(
         raise HTTPException(status_code=422, detail=str(exc))
     except operations.StageNotEnabledError as exc:
         raise HTTPException(status_code=501, detail=str(exc))
+    except operations.PeriodLockError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @app.get("/operations/history")

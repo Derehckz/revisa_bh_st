@@ -79,6 +79,20 @@ def main() -> int:
             else:
                 _warn(f"No hay Solicitud.xlsx en {base}")
 
+    if os.name == "nt":
+        try:
+            from outlook_utils import check_outlook_health
+
+            oh = check_outlook_health(probe_com=False)
+            if oh.get("ready") or oh.get("process_running"):
+                _ok(f"Outlook: {oh.get('message')}")
+            elif oh.get("exe_found"):
+                _warn(f"Outlook: {oh.get('message')}")
+            else:
+                _warn(f"Outlook: {oh.get('message')}")
+        except Exception as e:
+            _warn(f"No se pudo comprobar Outlook: {e}")
+
     if errors:
         print(f"\nResultado: {errors} error(es) críticos.")
         return 1

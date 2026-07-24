@@ -127,49 +127,126 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
             _param_field("output_file", type_="string", label="Nombre salida", default="Solicitud.xlsx"),
         ]
     if stage_num in (3, 4):
-        return sheet_fields + [
+        return [
+            _param_field(
+                "month_dir",
+                type_="string",
+                label="Carpeta del período (opcional)",
+                required=False,
+                help_text="Ej: 2026/Mayo. Si se omite, usa la carpeta del período seleccionado.",
+            ),
+            _param_field(
+                "excel_file",
+                type_="string",
+                label="Archivo Excel (opcional)",
+                required=False,
+                help_text="Ej: Solicitud.xlsx",
+            ),
+        ] + sheet_fields + [
             _param_field("strict", cli="--strict", label="Validación estricta del Excel"),
         ]
     if stage_num == 1:
-        return sheet_fields + [
+        return [
+            _param_field(
+                "month_dir",
+                type_="string",
+                cli="--month-dir",
+                label="Carpeta del período (opcional)",
+                required=False,
+                help_text="Ej: 2026/Mayo. Si se omite, usa la carpeta del período seleccionado.",
+            ),
+            _param_field(
+                "excel_file",
+                type_="string",
+                cli="--excel-file",
+                label="Archivo Excel (opcional)",
+                required=False,
+                help_text="Ej: Solicitud.xlsx",
+            ),
+        ] + sheet_fields + [
             _param_field(
                 "send",
                 cli="--send",
                 label="Enviar correos reales",
-                help_text="Sin esto solo se analiza/previsualiza (no despacha).",
+                default=True,
+                help_text="Activo = despacho real por Outlook. Desmárcalo solo para simular.",
             ),
             _param_field("force_resend", cli="--force-resend", label="Forzar reenvío (ignora idempotencia)"),
             _param_field("strict", cli="--strict", label="Validación estricta del Excel"),
+            _param_field(
+                "fecha_limite_recepcion",
+                type_="string",
+                cli="--fecha-limite-recepcion",
+                label="Fecha límite recepción (correo original)",
+                required=False,
+                help_text="Ej: 27 Mayo 2026",
+            ),
+            _param_field(
+                "horario_recepcion",
+                type_="string",
+                cli="--horario-recepcion",
+                label="Hora límite recepción (correo original)",
+                required=False,
+                help_text="Ej: 19:00",
+            ),
+            _param_field(
+                "fecha_limite_recordatorio",
+                type_="string",
+                cli="--fecha-limite-recordatorio",
+                label="Fecha límite recordatorio",
+                required=False,
+                help_text="Plazo mostrado en correos de recordatorio (puede diferir del original).",
+            ),
+            _param_field(
+                "horario_recordatorio",
+                type_="string",
+                cli="--horario-recordatorio",
+                label="Hora límite recordatorio",
+                required=False,
+                help_text="Ej: 19:00",
+            ),
         ]
     if stage_num == 5:
         return [
-            _param_field("send", cli="--send", label="Enviar correos de recepción"),
+            _param_field(
+                "send",
+                cli="--send",
+                label="Enviar correos de recepción",
+                default=True,
+                help_text="Activo = despacho real por Outlook desde web o consola.",
+            ),
             _param_field("force_resend", cli="--force-resend", label="Forzar reenvío"),
             _param_field(
                 "supervision_mode",
                 type_="string",
                 label="Supervisión (per_mail | batch)",
-                default="per_mail",
-                help_text="En web solo vista previa; envío real por consola.",
+                default="batch",
+                help_text="batch: un solo OK para todos. per_mail: confirma cada correo.",
             ),
         ]
     if stage_num == 7:
         return [
-            _param_field("send", cli="--send", label="Enviar correos de pago"),
+            _param_field(
+                "send",
+                cli="--send",
+                label="Enviar correos de pago",
+                default=True,
+                help_text="Activo = despacho real por Outlook desde web o consola.",
+            ),
             _param_field(
                 "fecha_pago",
                 type_="string",
                 cli="--fecha-pago",
                 label="Fecha de pago (dd/mm/aaaa)",
                 required=False,
-                help_text="Obligatoria para vista previa en web.",
+                help_text="Obligatoria si envías correos reales.",
             ),
             _param_field("force_resend", cli="--force-resend", label="Forzar reenvío"),
             _param_field(
                 "supervision_mode",
                 type_="string",
                 label="Supervisión (per_mail | batch)",
-                default="per_mail",
+                default="batch",
             ),
         ]
     if stage_num == 2:
@@ -230,6 +307,13 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
 
 def validate_stage_params(stage_num: int, params: dict[str, Any]) -> None:
     """Valida parámetros del body API antes de armar el comando."""
+    year = params.get("year")
+    month = params.get("month")
+    if year is not None and month:
+        import period_policy
+
+        period_policy.assert_period_open_for_api(year, month)
+
     schema = {f["name"]: f for f in params_schema_for_stage(stage_num)}
     for name, field in schema.items():
         if field.get("required") and not params.get(name):
@@ -244,19 +328,13 @@ def validate_stage_params(stage_num: int, params: dict[str, Any]) -> None:
 
 
 def validate_interactive_params(stage_num: int, params: dict[str, Any]) -> None:
-    """Validación extra para sesiones WebSocket supervisadas (no envía por defecto)."""
+    """Validación extra para sesiones WebSocket supervisadas."""
     validate_stage_params(stage_num, params)
 
     if stage_num == 8 and not str(params.get("map_csv") or "").strip():
         raise ValueError(
             "Etapa 8 (web supervisada): indique map_csv (CSV RUT,CFT|IP). "
             "Genérelo con herramientas/generar_map_ip_cft.py si falta."
-        )
-
-    if stage_num in (5, 7) and params.get("send"):
-        raise ValueError(
-            f"Etapa {stage_num}: el envío real de correos no está habilitado en sesión web. "
-            "Use la consola con supervisión manual (--send) o deje send=false para vista previa."
         )
 
 

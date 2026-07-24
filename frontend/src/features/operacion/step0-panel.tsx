@@ -8,6 +8,7 @@ import { Select } from "@/shared/ui/select";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { Step0OptionsResponse } from "@/shared/api/types";
 import { GuidedStageFlow } from "./guided-stage-flow";
+import { usePeriodOperationGuard } from "./period-operation-context";
 
 type Props = {
   selectedPeriod: Period | undefined;
@@ -40,6 +41,7 @@ export function Step0Panel({
   baseUrl,
   apiKey,
 }: Props) {
+  const { confirmBeforeOperation } = usePeriodOperationGuard();
   const prereqOk = options.data?.prerequisites?.ok !== false;
   const canRun = prereqOk && Boolean(maestroFile && bdFile && selectedPeriod);
 
@@ -48,6 +50,7 @@ export function Step0Panel({
       onError("Selecciona período, archivo maestro y BD docentes.");
       return;
     }
+    if (!(await confirmBeforeOperation())) return;
     setIsStarting(true);
     try {
       const job = await apiPost<OperationJob>(baseUrl, apiKey, "/operations/stages/0/start", {

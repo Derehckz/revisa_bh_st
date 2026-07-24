@@ -9,6 +9,7 @@ import { ErrorState } from "@/shared/ui/error-state";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { GuidedStageFlow } from "./guided-stage-flow";
 import { StageParamFields, buildConfirmSummary } from "./stage-param-fields";
+import { usePeriodOperationGuard } from "./period-operation-context";
 
 type Props = {
   stageNum: number;
@@ -51,6 +52,7 @@ export function GenericStagePanel({
   baseUrl,
   apiKey,
 }: Props) {
+  const { confirmBeforeOperation } = usePeriodOperationGuard();
   const schema = options.data?.params_schema ?? [];
   const [params, setParams] = useState<Record<string, unknown>>(() => initialParams(schema));
   const [isStarting, setIsStarting] = useState(false);
@@ -58,6 +60,9 @@ export function GenericStagePanel({
 
   useEffect(() => {
     const base = initialParams(options.data?.params_schema ?? []);
+    if (isEmailStage) {
+      base.send = true;
+    }
     if (stageNum === 8 && selectedPeriod) {
       base.map_csv = `${selectedPeriod.year}/${selectedPeriod.month_name}/map_ip_cft.csv`;
       base.no_interactive = true;
@@ -75,7 +80,7 @@ export function GenericStagePanel({
     }
     setParams(base);
     setSendConfirm(false);
-  }, [stageNum, options.data?.params_schema, selectedPeriod]);
+  }, [stageNum, options.data?.params_schema, selectedPeriod, isEmailStage]);
 
   const prereqOk = options.data?.prerequisites?.ok !== false;
   const wantsSend = Boolean(params.send);
@@ -99,6 +104,7 @@ export function GenericStagePanel({
       onError("Selecciona un período.");
       return;
     }
+    if (!(await confirmBeforeOperation())) return;
     setIsStarting(true);
     try {
       const body: Record<string, unknown> = {

@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { periodDateRange } from "@/shared/lib/period-dates";
 import { DateInput } from "@/shared/ui/date-input";
 import { useToast } from "@/shared/ui/toast";
+import { usePeriodOperationGuard } from "./period-operation-context";
 
 type Props = {
   selectedPeriod: Period | undefined;
@@ -40,6 +41,7 @@ export function ClosePeriodPanel({
   onFinished,
 }: Props) {
   const { push } = useToast();
+  const { confirmBeforeOperation } = usePeriodOperationGuard();
   const monthDefaults = useMemo(() => {
     if (!selectedPeriod) return { inicio: "", fin: "", pago: "", minIso: "", maxIso: "" };
     const range = periodDateRange(selectedPeriod);
@@ -70,6 +72,7 @@ export function ClosePeriodPanel({
 
   async function runClose() {
     if (!selectedPeriod || !confirmClose) return;
+    if (!(await confirmBeforeOperation())) return;
     setRunning(true);
     const steps = STEPS_BATCH.filter((n) => !(skipEmail && (n === 5 || n === 7)));
 
