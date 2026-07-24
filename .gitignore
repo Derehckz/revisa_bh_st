@@ -66,7 +66,9 @@ revision_carpetas.xlsx
 
 # --- IDE / SO ---
 .idea/
-.vscode/
+.vscode/*
+!.vscode/tasks.json
+!.vscode/extensions.json
 *.swp
 *.swo
 *~

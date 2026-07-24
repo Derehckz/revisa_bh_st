@@ -42,6 +42,11 @@ Referencia: `/.env.example`.
 
 ## 3) Arranque de API
 
+**Rápido (API + frontend):** en la raíz, doble clic en `start-web.bat` (o `.\start-web.ps1`).
+Detener: `stop-web.bat`. En Cursor: Run Task → **BH: Start Web (API + Frontend)**.
+
+Solo API:
+
 ```bash
 python -m uvicorn api.app:app --host 127.0.0.1 --port 8000
 ```

@@ -358,14 +358,34 @@ Tras cambiar `.env`, **reiniciar uvicorn**.
 
 ## Ejecución
 
-### 1) Pipeline por consola
+### Arranque rápido (web) — recomendado en Windows
+
+**Doble clic** en la raíz del proyecto:
+
+| Archivo | Acción |
+|---------|--------|
+| [`start-web.bat`](start-web.bat) | Abre API `:8000` + Vite `:5173` y el navegador |
+| [`stop-web.bat`](stop-web.bat) | Libera esos puertos |
+
+Desde PowerShell:
+
+```powershell
+.\start-web.ps1
+.\stop-web.ps1
+```
+
+En **Cursor / VS Code**: `Terminal` → `Run Task…` → **BH: Start Web (API + Frontend)**.
+
+Primera vez en el navegador: **Ajustes** → pegar `BH_API_KEY` de tu `.env` (se guarda en el navegador).
+
+### 1) Pipeline por consola (sin web)
 
 ```bash
 python main.py --year 2026 --month Julio
 python main.py --year 2026 --month Julio --start-from 2 --end-at 4
 ```
 
-### 2) API
+### 2) API (manual)
 
 ```bash
 python -m uvicorn api.app:app --host 127.0.0.1 --port 8000
@@ -386,7 +406,7 @@ curl -s "http://127.0.0.1:8000/operations/period/excel-avance?year=2026&month=Ju
   -H "x-api-key: <tu_api_key>"
 ```
 
-### 3) Frontend (desarrollo)
+### 3) Frontend (manual)
 
 1. API en `:8000` con la misma key que pondrás en Configuración.
 2. CORS en `.env`:
