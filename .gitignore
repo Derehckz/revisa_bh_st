@@ -47,6 +47,7 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/.vite/
 *.tsbuildinfo
+frontend/vite.config.d.ts
 
 # --- Tests / cobertura ---
 .pytest_cache/
