@@ -1,8 +1,22 @@
-# Carpetas de años/meses (datos de trabajo, no necesarios para el código)
-# Se crean al ejecutar los scripts según RAIZ en config.py
+# =============================================================================
+# Boletas Honorarios — .gitignore
+# =============================================================================
+
+# --- Datos operativos por año/mes (se generan en disco; no van al repo) ---
 /[0-9][0-9][0-9][0-9]/
 
-# Python
+# --- Secretos / entorno local ---
+.env
+.env.local
+.env.*.local
+
+# --- Runtime / estado local ---
+.state/
+.logs/
+*.sqlite3
+*.db
+
+# --- Python ---
 __pycache__/
 *.py[cod]
 *$py.class
@@ -22,44 +36,40 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Entornos virtuales
-venv/
 .venv/
+venv/
 env/
-.env/
-.env
 
-# Node
+# --- Node / frontend ---
 node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/.vite/
+*.tsbuildinfo
 
-# IDE / editor
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# Tests y cobertura
+# --- Tests / cobertura ---
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
 .nox/
+.mypy_cache/
+.ruff_cache/
 
-# Backups generados por los scripts (*_backup_*.zip)
+# --- Backups y logs generados ---
 *_backup_*.zip
-
-# Archivos generados por los scripts (por si se ejecutan en la raíz)
-revision_carpetas.xlsx
 *.log
 *.jsonl
+revision_carpetas.xlsx
 
-# Estado local de idempotencia / runtime
-.state/
-*.sqlite3
-
-# Sistema
+# --- IDE / SO ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
 nul
+desktop.ini
