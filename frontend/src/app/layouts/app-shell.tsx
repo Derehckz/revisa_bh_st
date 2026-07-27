@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import {
   BarChart3,
   CalendarRange,
+  ClipboardList,
   Cog,
   LayoutDashboard,
   PanelLeftClose,
@@ -22,6 +23,7 @@ const navItems = [
   { to: "/boletas", icon: ReceiptText, label: "Boletas" },
   { to: "/docentes", icon: Users, label: "Docentes" },
   { to: "/operacion", icon: Cog, label: "Operación" },
+  { to: "/avance", icon: ClipboardList, label: "Avance" },
   { to: "/runs", icon: BarChart3, label: "Runs" },
   { to: "/settings", icon: Settings2, label: "Ajustes" },
 ];
@@ -107,7 +109,15 @@ export function AppShell() {
 
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <Topbar />
-        <main id="main-content" className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-5 md:px-6 md:py-6 lg:px-8">
+        <main
+          id="main-content"
+          className={cn(
+            "mx-auto w-full flex-1",
+            location.pathname.startsWith("/avance")
+              ? "max-w-[1800px] px-3 py-3 md:px-4 md:py-4"
+              : "max-w-[1400px] px-4 py-5 md:px-6 md:py-6 lg:px-8"
+          )}
+        >
           <Outlet />
         </main>
       </div>

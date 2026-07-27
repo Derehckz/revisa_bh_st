@@ -22,13 +22,14 @@ from fastapi.responses import JSONResponse
 
 from api import operations, schemas, security, services
 from api.interactive.router import router as interactive_router
+from api.spa import is_api_or_docs_path, mount_frontend_spa
 from db.session import SessionLocal
 from settings import get_setting
 
 app = FastAPI(
-    title="Boletas Honorarios API",
-    version="0.1.0",
-    description="API read-only para consultar periodos y métricas del pipeline.",
+    title="Boletas Honorarios",
+    version="0.2.0",
+    description="API + interfaz web de Boletas Honorarios.",
 )
 
 app.include_router(interactive_router)
@@ -85,7 +86,7 @@ async def request_context_middleware(request: Request, call_next):
     request.state.client_ip = request.client.host if request.client else "unknown"
     started = time.perf_counter()
 
-    if request.url.path != "/health":
+    if request.url.path != "/health" and is_api_or_docs_path(request.url.path):
         rate = security.check_rate_limit(
             client_ip=request.state.client_ip,
             api_key=request.headers.get("x-api-key"),
@@ -170,7 +171,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.get("/health", response_model=schemas.HealthResponse)
 def health() -> dict:
-    return {"status": "ok"}
+    from api.spa import frontend_dist_ready
+
+    return {"status": "ok", "ui": "embedded" if frontend_dist_ready() else "api_only"}
 
 
 @app.get("/periods", response_model=list[schemas.PeriodItem])
@@ -392,6 +395,28 @@ def operations_period_excel_avance(
     _: None = Depends(security.require_api_key),
 ) -> dict:
     return operations.excel_avance(year, month, row_limit=row_limit)
+
+
+@app.get("/operations/period/inbox-gaps")
+def operations_period_inbox_gaps(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    fecha_inicio: str | None = Query(default=None, description="dd/mm/yyyy opcional"),
+    fecha_fin: str | None = Query(default=None, description="dd/mm/yyyy opcional"),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Detecta boletas bhe_ en Inbox para filas NO RECIBIDO que aún no están en carpeta."""
+    try:
+        return operations.inbox_gaps_scan(
+            year,
+            month,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
 
 @app.get("/operations/period/sync-status")
@@ -646,3 +671,7 @@ def operations_outbox_reopen(
     _: None = Depends(security.require_api_key),
 ) -> dict:
     return operations.outbox_reopen_failed(limit=limit)
+
+
+# SPA al final: no debe tapar rutas API registradas arriba.
+_SPA_MOUNTED = mount_frontend_spa(app)

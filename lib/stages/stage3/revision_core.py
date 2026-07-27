@@ -226,12 +226,34 @@ def separar_rut_dv(rut_completo):
 
 
 def _rut_variantes_prefijo_archivo(rut_cualquier_formato: str) -> list[str]:
-    """Cuerpo numérico del RUT y variante sin ceros a la izquierda (nombres bhe_... en disco)."""
-    d = utils.normalizar_rut_digits(rut_cualquier_formato)
-    if not d:
+    """Cuerpos numéricos posibles para prefijo bhe_<RUT>-NNN en disco.
+
+    Los archivos SII usan el RUT sin DV (ej. bhe_7819594-511). Si el Excel trae
+    EMPLID/RUT con DV (7819594-0), no debe buscarse bhe_78195940*.
+    """
+    raw = str(rut_cualquier_formato or "").strip().upper().replace(".", "").replace(" ", "")
+    if not raw:
         return []
-    stripped = d.lstrip("0") or "0"
-    return list(dict.fromkeys([d, stripped] if stripped != d else [d]))
+    variantes: list[str] = []
+    if "-" in raw:
+        cuerpo = re.sub(r"\D", "", raw.split("-", 1)[0])
+        if cuerpo:
+            variantes.append(cuerpo)
+    d = utils.normalizar_rut_digits(raw)
+    if d:
+        variantes.append(d)
+        # Si vino solo dígitos con DV pegado (ej. 78195940), ofrecer cuerpo sin DV.
+        if "-" not in raw and len(d) >= 8:
+            variantes.append(d[:-1])
+    out: list[str] = []
+    for v in variantes:
+        if not v:
+            continue
+        stripped = v.lstrip("0") or "0"
+        for cand in (v, stripped):
+            if cand not in out:
+                out.append(cand)
+    return out
 
 
 def archivos_relacionados(ruta_carpeta, rut_normalizado):

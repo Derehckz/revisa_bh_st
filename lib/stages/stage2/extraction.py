@@ -134,6 +134,48 @@ def escanear_adjuntos(mensajes) -> tuple[list[tuple], list[str], int]:
     return rutas_a_guardar, archivos_repetidos, contador_emails
 
 
+def verificar_pares_en_disco(mensajes) -> list[str]:
+    """Tras guardar: lista rutas bhe_ PDF/XML del rango que aún no existen en disco.
+
+    Detecta fallos silenciosos (Ignore, COM, ruta incorrecta) que antes hacían
+    parecer que el paso 2 «corrió bien» sin dejar archivos.
+    """
+    faltantes: list[str] = []
+    vistos: set[str] = set()
+    for msg in mensajes:
+        try:
+            adjuntos = [att for att in msg.Attachments if "bhe_" in att.FileName.lower()]
+            if not adjuntos:
+                continue
+            tiene_pdf = any(att.FileName.lower().endswith(".pdf") for att in adjuntos)
+            tiene_xml = any(att.FileName.lower().endswith(".xml") for att in adjuntos)
+            if not (tiene_pdf and tiene_xml):
+                continue
+            fecha_msg = msg.ReceivedTime
+            try:
+                fecha_msg = fecha_msg.replace(tzinfo=ZONA_HORARIA)
+            except (TypeError, AttributeError):
+                pass
+            anio = str(fecha_msg.year)
+            mes_nombre = MESES_ES[fecha_msg.month - 1]
+            carpeta_mes = os.path.join(CARPETA_BASE, anio, mes_nombre)
+            for att in adjuntos:
+                name = str(att.FileName)
+                low = name.lower()
+                if not (low.endswith(".pdf") or low.endswith(".xml")):
+                    continue
+                ruta = os.path.join(carpeta_mes, name)
+                key = os.path.normcase(os.path.abspath(ruta))
+                if key in vistos:
+                    continue
+                vistos.add(key)
+                if not os.path.isfile(ruta):
+                    faltantes.append(ruta)
+        except Exception as e:
+            logging.error("Error verificando adjuntos en disco: %s", e)
+    return faltantes
+
+
 def guardar_adjuntos(
     ui: InteractionPort,
     rutas_a_guardar: list[tuple],

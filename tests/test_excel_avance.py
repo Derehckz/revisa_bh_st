@@ -74,6 +74,9 @@ def test_excel_avance_reads_solicitud(tmp_path: Path, monkeypatch):
     assert out["pagos"]["sheet_exists"] is False
     assert len(out["rows"]) == 3
     assert out["rows"][0]["name"] == "Ana"
+    assert out["rows"][0]["emplid"] == ""
+    assert "observaciones_xml" in out["rows"][1]
+    assert out["rows"][1]["estado_recepcion"] == "RECIBIDO CON ERROR"
 
 
 def test_excel_avance_missing_file(tmp_path: Path, monkeypatch):

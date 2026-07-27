@@ -141,7 +141,7 @@ class Stage5Service:
             ui.log(f"Error leyendo Excel: {e}", level="error")
             return {"ok": False}
 
-        required = ["Estado_Recepcion", "Email_Docente", "NAME", "numeroBoleta_XML"]
+        required = ["Estado_Recepcion", "Email_Docente", "NAME"]
         missing = [c for c in required if c not in df.columns]
         if missing:
             ui.log(f"Columnas faltantes: {missing}", level="error")
@@ -149,6 +149,12 @@ class Stage5Service:
 
         if "Correo_Recepcion_Enviado" not in df.columns:
             df["Correo_Recepcion_Enviado"] = ""
+        if "numeroBoleta_XML" not in df.columns:
+            df["numeroBoleta_XML"] = ""
+        if "Observaciones" not in df.columns:
+            df["Observaciones"] = ""
+        if "Observacion_Descartes" not in df.columns:
+            df["Observacion_Descartes"] = ""
 
         sent_from_logs = self._sent_keys_from_logs(ruta_logs, año, mes)
         restored_count = self._apply_log_sent_markers(df, año=año, mes=mes, sent_keys=sent_from_logs)
@@ -158,9 +164,18 @@ class Stage5Service:
                 level="info",
             )
 
-        df_filtrado = df[df["Estado_Recepcion"] == "RECIBIDO"]
+        mask = df.apply(lambda row: mail_ops.clasificar_fila_recepcion(row) is not None, axis=1)
+        df_filtrado = df[mask]
+        n_ok = int(
+            df_filtrado.apply(lambda r: mail_ops.clasificar_fila_recepcion(r) == "ok", axis=1).sum()
+        )
+        n_problema = int(len(df_filtrado) - n_ok)
         if df_filtrado.empty:
-            ui.log("No hay filas RECIBIDO para procesar.", level="warning")
+            ui.log(
+                "No hay filas para correo de recepción "
+                "(RECIBIDO, RECIBIDO CON ERROR, o NO RECIBIDO con descartes).",
+                level="warning",
+            )
             return {"ok": True, "stats": {}}
 
         df_pendientes = df_filtrado[~df_filtrado["Correo_Recepcion_Enviado"].apply(_is_sent_marker)]
@@ -168,9 +183,30 @@ class Stage5Service:
             ui.log("No hay correos de recepción pendientes; todo ya fue enviado.", level="warning")
             return {"ok": True, "stats": {}}
 
+        ui.log(
+            f"Pendientes: {len(df_pendientes)} "
+            f"(confirmación OK + observación/reenvío). "
+            f"En lote elegible: OK={n_ok}, con problema={n_problema}.",
+            level="info",
+        )
+
         ui.emit(
             "analysis.ready",
-            {"count": len(df_pendientes), "modo_prueba": modo_prueba, "allow_send": ctx.allow_send},
+            {
+                "count": len(df_pendientes),
+                "count_ok": int(
+                    df_pendientes.apply(
+                        lambda r: mail_ops.clasificar_fila_recepcion(r) == "ok", axis=1
+                    ).sum()
+                ),
+                "count_problema": int(
+                    df_pendientes.apply(
+                        lambda r: mail_ops.clasificar_fila_recepcion(r) == "problema", axis=1
+                    ).sum()
+                ),
+                "modo_prueba": modo_prueba,
+                "allow_send": ctx.allow_send,
+            },
         )
 
         outlook = None if modo_prueba else conectar_outlook_app()
@@ -201,7 +237,9 @@ class Stage5Service:
                 return {"ok": False}
         rows = [
             ("Pendientes procesados", str(len(df_pendientes))),
-            ("Enviados", str(stats.get("sent", 0))),
+            ("Enviados (total)", str(stats.get("sent", 0))),
+            ("  · confirmación OK", str(stats.get("sent_ok", 0))),
+            ("  · observación / reenvío", str(stats.get("sent_problema", 0))),
             ("Previsualizados", str(stats.get("previewed", 0))),
             ("Omitidos", str(stats.get("omitted", 0))),
             ("Saltados por operador", str(stats.get("skipped", 0))),
@@ -209,7 +247,10 @@ class Stage5Service:
             ("Modo", "Prueba (sin envío real)" if modo_prueba else "Envío real"),
         ]
         ui.table("Resumen etapa 5 — recepción", rows)
-        ui.header("Etapa 5 finalizada", "Revisa resumen y estado en Solicitud.xlsx")
+        ui.header(
+            "Etapa 5 finalizada",
+            "Incluye confirmaciones OK y avisos de error/sin match (reenvío).",
+        )
 
         ui.emit("session.summary", {"ok": True, "stats": stats, "modo_prueba": modo_prueba})
         return {"ok": True, "stats": stats}

@@ -10,8 +10,9 @@ import {
   usePeriods,
   usePipelineStages,
   useStageOptions,
+  useInboxGapsScan,
 } from "@/shared/api/queries";
-import type { OperationJob } from "@/shared/api/types";
+import type { InboxGapsResponse, OperationJob } from "@/shared/api/types";
 import { useOperationJob } from "@/shared/hooks/use-operation-job";
 import { useToast } from "@/shared/ui/toast";
 import { JobStatusPanel } from "./job-status-panel";
@@ -31,7 +32,9 @@ import { ExcelAvancePanel } from "./excel-avance-panel";
 import { PeriodJobsList } from "./period-jobs-list";
 import { ExecutionHistoryPanel } from "./execution-history-panel";
 import { NextStepCard } from "./next-step-card";
+import { InboxGapsCard } from "./inbox-gaps-card";
 import { recommendForOperation } from "@/shared/lib/recommend-next-stage";
+import { periodDateRange } from "@/shared/lib/period-dates";
 import {
   defaultOperationPeriodKey,
   periodKey,
@@ -50,15 +53,24 @@ export function OperacionPage() {
   const syncRefresh = usePeriodSyncRefresh(baseUrl, apiKey);
   const [selectedPeriodKey, setSelectedPeriodKey] = useState("");
   const [activeStage, setActiveStage] = useState(0);
+  const [stage1RemindersOnly, setStage1RemindersOnly] = useState(false);
   const [activeTab, setActiveTab] = useState<OperacionTab>("ejecutar");
   const [maestroFile, setMaestroFile] = useState("");
   const [bdFile, setBdFile] = useState("");
   const [enableAutoClose, setEnableAutoClose] = useState(false);
+  const [inboxGapsResult, setInboxGapsResult] = useState<InboxGapsResponse | null>(null);
+  const [inboxGapsError, setInboxGapsError] = useState<string | null>(null);
   const prevJobStatusRef = useRef<OperationJob["status"] | null>(null);
+  const inboxGaps = useInboxGapsScan(baseUrl, apiKey);
 
   const selectedPeriod = periods.data?.length
     ? resolveOperationPeriod(periods.data, selectedPeriodKey)
     : undefined;
+
+  useEffect(() => {
+    setInboxGapsResult(null);
+    setInboxGapsError(null);
+  }, [selectedPeriod?.year, selectedPeriod?.month_name]);
 
   const jobs = useOperationJobs(baseUrl, apiKey, 50, selectedPeriod?.year, selectedPeriod?.month_name);
   const {
@@ -138,8 +150,9 @@ export function OperacionPage() {
     return recommendForOperation(overview.data, selectedPeriod);
   }, [overview.data, selectedPeriod]);
 
-  function handleSelectStage(stageNum: number) {
+  function handleSelectStage(stageNum: number, opts?: { remindersOnly?: boolean }) {
     setActiveStage(stageNum);
+    setStage1RemindersOnly(stageNum === 1 ? Boolean(opts?.remindersOnly) : false);
     setActiveTab("ejecutar");
   }
 
@@ -170,6 +183,7 @@ export function OperacionPage() {
           baseUrl={baseUrl}
           apiKey={apiKey}
           disabled={periodBusy}
+          remindersOnlyInitial={stage1RemindersOnly}
           onGoToNextStage={() => handleSelectStage(2)}
         />
       );
@@ -192,7 +206,9 @@ export function OperacionPage() {
           baseUrl={baseUrl}
           apiKey={apiKey}
           disabled={periodBusy}
+          noRecibidos={overview.data?.kpis?.no_recibidos ?? 0}
           onGoToNextStage={() => handleSelectStage(4)}
+          onGoToReminders={() => handleSelectStage(1, { remindersOnly: true })}
         />
       );
     } else if (activeStage === 4) {
@@ -216,6 +232,13 @@ export function OperacionPage() {
           baseUrl={baseUrl}
           apiKey={apiKey}
           disabled={periodBusy}
+          noRecibidos={overview.data?.kpis?.no_recibidos ?? 0}
+          onGoToNextStage={() => handleSelectStage(Math.min(activeStage + 1, 10))}
+          onGoToReminders={
+            activeStage === 5
+              ? () => handleSelectStage(1, { remindersOnly: true })
+              : undefined
+          }
         />
       );
     }
@@ -270,7 +293,47 @@ export function OperacionPage() {
           />
         )}
 
-        <div className="grid min-h-[480px] gap-3 lg:grid-cols-[220px_1fr]">
+        {selectedPeriod && !isPeriodClosed(selectedPeriod) && (
+          <InboxGapsCard
+            scanning={inboxGaps.isPending}
+            result={inboxGapsResult}
+            error={inboxGapsError}
+            onScan={() => {
+              setInboxGapsError(null);
+              const range = periodDateRange(selectedPeriod);
+              inboxGaps.mutate(
+                {
+                  year: selectedPeriod.year,
+                  month: selectedPeriod.month_name,
+                  fecha_inicio: range.inicio,
+                  fecha_fin: range.fin,
+                },
+                {
+                  onSuccess: (res) => {
+                    setInboxGapsResult(res);
+                    if (res.gap_count > 0) {
+                      push(`${res.gap_count} hueco(s) en correo sin bajar`, "info");
+                    } else if (res.ok) {
+                      push(res.message || "Sin huecos", "success");
+                    }
+                  },
+                  onError: (err) => {
+                    const msg =
+                      typeof err === "object" && err !== null && "message" in err
+                        ? String((err as { message: unknown }).message)
+                        : "No se pudo escanear Outlook";
+                    setInboxGapsError(msg);
+                    push(msg, "error");
+                  },
+                }
+              );
+            }}
+            onGoToStage2={() => handleSelectStage(2)}
+          />
+        )}
+
+        <div className={activeTab === "avance" ? "min-h-[480px]" : "grid min-h-[480px] gap-3 lg:grid-cols-[220px_1fr]"}>
+          {activeTab !== "avance" && (
           <aside className="rounded-lg border border-border/80 bg-muted/30 p-2 lg:sticky lg:top-16 lg:self-start">
             {stagesQuery.isLoading ? (
               <p className="p-2 text-sm text-muted-foreground">Cargando…</p>
@@ -284,6 +347,7 @@ export function OperacionPage() {
               />
             )}
           </aside>
+          )}
 
           <section className="min-w-0 overflow-hidden rounded-lg border border-border/80 bg-card shadow-xs">
             <OperacionTabs
@@ -301,6 +365,7 @@ export function OperacionPage() {
                   apiKey={apiKey}
                   year={selectedPeriod?.year}
                   month={selectedPeriod?.month_name}
+                  layout="full"
                 />
               )}
 

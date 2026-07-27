@@ -17,7 +17,7 @@ const OUTLOOK_STAGES = new Set([5, 7]);
 
 const STAGE_PRIMARY_CTA: Record<number, string> = {
   0: "Generar Solicitud del mes",
-  5: "Enviar correos de recepción",
+  5: "Enviar confirmaciones y observaciones",
   6: "Ejecutar paso 6",
   7: "Enviar correos de pago",
   8: "Ejecutar clasificación",
@@ -38,6 +38,8 @@ type Props = {
   bdFile?: string;
   setBdFile?: (v: string) => void;
   onGoToNextStage?: () => void;
+  onGoToReminders?: () => void;
+  noRecibidos?: number;
 };
 
 function initialParams(schema: StageParamField[], stageNum: number): Record<string, unknown> {
@@ -69,6 +71,8 @@ export function BridgedInteractivePanel({
   bdFile,
   setBdFile,
   onGoToNextStage,
+  onGoToReminders,
+  noRecibidos = 0,
 }: Props) {
   const schema = options.data?.params_schema ?? [];
   const [params, setParams] = useState<Record<string, unknown>>(() =>
@@ -399,12 +403,20 @@ export function BridgedInteractivePanel({
           detail={
             stageNum === 0
               ? "Ya puedes enviar las solicitudes (paso 1)."
-              : "Revisa el detalle si hace falta."
+              : stageNum === 5 && noRecibidos > 0
+                ? `Confirmaciones/observaciones listas. Quedan ${noRecibidos} NO RECIBIDO: envía recordatorios desde el paso 1.`
+                : "Revisa el detalle si hace falta."
           }
           nextLabel={
             onGoToNextStage ? (stageNum === 0 ? "Ir al paso 1" : "Siguiente paso") : undefined
           }
           onNext={onGoToNextStage}
+          secondaryLabel={
+            stageNum === 5 && noRecibidos > 0 && onGoToReminders
+              ? `Paso 1 · solo recordatorios (${noRecibidos})`
+              : undefined
+          }
+          onSecondary={onGoToReminders}
         />
       )}
 

@@ -15,6 +15,7 @@ import type {
   Period,
   PeriodOverviewResponse,
   ExcelAvanceResponse,
+  InboxGapsResponse,
   PeriodInsightsResponse,
   PeriodSummary,
   RunStagesResponse,
@@ -42,7 +43,7 @@ export function invalidatePeriodViews(queryClient: QueryClient) {
 
 export function usePeriods(baseUrl: string, apiKey: string) {
   return useQuery({
-    queryKey: ["periods", baseUrl],
+    queryKey: ["periods", baseUrl, apiKey],
     queryFn: () => apiGet<Period[]>(baseUrl, apiKey, "/periods"),
     refetchInterval: 30_000,
   });
@@ -50,7 +51,7 @@ export function usePeriods(baseUrl: string, apiKey: string) {
 
 export function usePeriodSummary(baseUrl: string, apiKey: string, year?: number, month?: string) {
   return useQuery({
-    queryKey: ["summary", baseUrl, year, month],
+    queryKey: ["summary", baseUrl, apiKey, year, month],
     enabled: Boolean(year && month),
     queryFn: () => apiGet<PeriodSummary>(baseUrl, apiKey, `/period/${year}/${month}`),
     refetchInterval: 15_000,
@@ -59,7 +60,7 @@ export function usePeriodSummary(baseUrl: string, apiKey: string, year?: number,
 
 export function usePeriodInsights(baseUrl: string, apiKey: string, year?: number, month?: string) {
   return useQuery({
-    queryKey: ["period-insights", baseUrl, year, month],
+    queryKey: ["period-insights", baseUrl, apiKey, year, month],
     enabled: Boolean(year && month),
     queryFn: () => apiGet<PeriodInsightsResponse>(baseUrl, apiKey, `/period/${year}/${month}/insights`),
     refetchInterval: 15_000,
@@ -81,7 +82,7 @@ export function useBoletas(
 ) {
   const { year, month, estado, q, page, pageSize, enabled = true } = params;
   return useQuery({
-    queryKey: ["boletas", baseUrl, year, month, estado, q, page, pageSize],
+    queryKey: ["boletas", baseUrl, apiKey, year, month, estado, q, page, pageSize],
     enabled: Boolean(enabled && year && month),
     refetchInterval: 15_000,
     queryFn: () => {
@@ -106,14 +107,14 @@ export function useBoletas(
 export function useRuns(baseUrl: string, apiKey: string, params: { page?: number; pageSize?: number } = {}) {
   const { page = 1, pageSize = 20 } = params;
   return useQuery({
-    queryKey: ["runs", baseUrl, page, pageSize],
+    queryKey: ["runs", baseUrl, apiKey, page, pageSize],
     queryFn: () => apiGet<RunsResponse>(baseUrl, apiKey, `/runs?limit=${pageSize}&offset=${(page - 1) * pageSize}`),
   });
 }
 
 export function useRunStages(baseUrl: string, apiKey: string, runId?: string, enabled = true) {
   return useQuery({
-    queryKey: ["run-stages", baseUrl, runId],
+    queryKey: ["run-stages", baseUrl, apiKey, runId],
     enabled: Boolean(enabled && runId),
     queryFn: () => apiGet<RunStagesResponse>(baseUrl, apiKey, `/runs/${runId}/stages`),
   });
@@ -121,7 +122,7 @@ export function useRunStages(baseUrl: string, apiKey: string, runId?: string, en
 
 export function useYearStats(baseUrl: string, apiKey: string, year?: number) {
   return useQuery({
-    queryKey: ["year-stats", baseUrl, year],
+    queryKey: ["year-stats", baseUrl, apiKey, year],
     enabled: Boolean(year),
     queryFn: () => apiGet<YearStatsResponse>(baseUrl, apiKey, `/stats/year/${year}`),
   });
@@ -134,7 +135,7 @@ export function useBoletaDetail(
 ) {
   const { year, month, boletaId, enabled = true } = params;
   return useQuery({
-    queryKey: ["boleta-detail", baseUrl, year, month, boletaId],
+    queryKey: ["boleta-detail", baseUrl, apiKey, year, month, boletaId],
     enabled: Boolean(enabled && year && month && boletaId),
     queryFn: () =>
       apiGet<BoletaDetailResponse>(baseUrl, apiKey, `/period/${year}/${month}/boletas/${boletaId}`),
@@ -151,7 +152,7 @@ export function useHealth(baseUrl: string) {
 export function useDocentes(baseUrl: string, apiKey: string, params: { q?: string; page: number; pageSize: number }) {
   const { q, page, pageSize } = params;
   return useQuery({
-    queryKey: ["docentes", baseUrl, q, page, pageSize],
+    queryKey: ["docentes", baseUrl, apiKey, q, page, pageSize],
     queryFn: () => {
       const offset = (page - 1) * pageSize;
       const qPart = q && q.trim().length >= 2 ? `&q=${encodeURIComponent(q.trim())}` : "";
@@ -162,7 +163,7 @@ export function useDocentes(baseUrl: string, apiKey: string, params: { q?: strin
 
 export function useDocenteProfile(baseUrl: string, apiKey: string, docenteId?: number) {
   return useQuery({
-    queryKey: ["docente-profile", baseUrl, docenteId],
+    queryKey: ["docente-profile", baseUrl, apiKey, docenteId],
     enabled: Boolean(docenteId),
     queryFn: () => apiGet<DocenteProfileResponse>(baseUrl, apiKey, `/docentes/${docenteId}?limit=300`),
   });
@@ -175,7 +176,7 @@ export function useDocenteBoletas(
 ) {
   const { docenteId, year, month, estado, page, pageSize } = params;
   return useQuery({
-    queryKey: ["docente-boletas", baseUrl, docenteId, year, month, estado, page, pageSize],
+    queryKey: ["docente-boletas", baseUrl, apiKey, docenteId, year, month, estado, page, pageSize],
     enabled: Boolean(docenteId),
     queryFn: () => {
       const offset = (page - 1) * pageSize;
@@ -198,7 +199,7 @@ export function useDocenteMetrics(
 ) {
   const { docenteId, year, month } = params;
   return useQuery({
-    queryKey: ["docente-metrics", baseUrl, docenteId, year, month],
+    queryKey: ["docente-metrics", baseUrl, apiKey, docenteId, year, month],
     enabled: Boolean(docenteId),
     queryFn: () => {
       const yearPart = year ? `?year=${year}` : "";
@@ -215,7 +216,7 @@ export function useDocenteEmails(
 ) {
   const { docenteId, tipo, estado, page, pageSize, enabled = true } = params;
   return useQuery({
-    queryKey: ["docente-emails", baseUrl, docenteId, tipo, estado, page, pageSize],
+    queryKey: ["docente-emails", baseUrl, apiKey, docenteId, tipo, estado, page, pageSize],
     enabled: Boolean(enabled && docenteId),
     queryFn: () => {
       const offset = (page - 1) * pageSize;
@@ -232,7 +233,7 @@ export function useDocenteEmails(
 
 export function usePipelineStages(baseUrl: string, apiKey: string) {
   return useQuery({
-    queryKey: ["pipeline-stages", baseUrl],
+    queryKey: ["pipeline-stages", baseUrl, apiKey],
     queryFn: () => apiGet<StagesListResponse>(baseUrl, apiKey, "/operations/stages"),
   });
 }
@@ -245,7 +246,7 @@ export function useStageOptions(
   month?: string
 ) {
   return useQuery({
-    queryKey: ["stage-options", baseUrl, stageNum, year, month],
+    queryKey: ["stage-options", baseUrl, apiKey, stageNum, year, month],
     enabled: Boolean(year && month),
     refetchInterval: 20_000,
     queryFn: () =>
@@ -264,7 +265,7 @@ export function useStep0Options(baseUrl: string, apiKey: string, year?: number, 
 
 export function usePeriodOverview(baseUrl: string, apiKey: string, year?: number, month?: string) {
   return useQuery({
-    queryKey: ["period-overview", baseUrl, year, month],
+    queryKey: ["period-overview", baseUrl, apiKey, year, month],
     enabled: Boolean(year && month),
     refetchInterval: (query) => {
       const data = query.state.data;
@@ -281,7 +282,7 @@ export function usePeriodOverview(baseUrl: string, apiKey: string, year?: number
 
 export function useExcelAvance(baseUrl: string, apiKey: string, year?: number, month?: string) {
   return useQuery({
-    queryKey: ["excel-avance", baseUrl, year, month],
+    queryKey: ["excel-avance", baseUrl, apiKey, year, month],
     enabled: Boolean(year && month),
     refetchInterval: 15_000,
     queryFn: () =>
@@ -290,6 +291,30 @@ export function useExcelAvance(baseUrl: string, apiKey: string, year?: number, m
         apiKey,
         `/operations/period/excel-avance?year=${year}&month=${encodeURIComponent(month || "")}`
       ),
+  });
+}
+
+/** On-demand: cruza Inbox Outlook vs carpeta para NO RECIBIDO (puede tardar). */
+export function useInboxGapsScan(baseUrl: string, apiKey: string) {
+  return useMutation({
+    mutationFn: (vars: {
+      year: number;
+      month: string;
+      fecha_inicio?: string;
+      fecha_fin?: string;
+    }) => {
+      const qs = new URLSearchParams({
+        year: String(vars.year),
+        month: vars.month,
+      });
+      if (vars.fecha_inicio) qs.set("fecha_inicio", vars.fecha_inicio);
+      if (vars.fecha_fin) qs.set("fecha_fin", vars.fecha_fin);
+      return apiGet<InboxGapsResponse>(
+        baseUrl,
+        apiKey,
+        `/operations/period/inbox-gaps?${qs.toString()}`
+      );
+    },
   });
 }
 
@@ -304,8 +329,8 @@ export function usePeriodSyncRefresh(baseUrl: string, apiKey: string) {
         `/operations/period/sync-status?year=${year}&month=${encodeURIComponent(month)}&refresh=true`
       ),
     onSuccess: (_data, vars) => {
-      void qc.invalidateQueries({ queryKey: ["period-overview", baseUrl, vars.year, vars.month] });
-      void qc.invalidateQueries({ queryKey: ["summary", baseUrl, vars.year, vars.month] });
+      void qc.invalidateQueries({ queryKey: ["period-overview", baseUrl, apiKey, vars.year, vars.month] });
+      void qc.invalidateQueries({ queryKey: ["summary", baseUrl, apiKey, vars.year, vars.month] });
     },
   });
 }
@@ -313,7 +338,7 @@ export function usePeriodSyncRefresh(baseUrl: string, apiKey: string) {
 export function useJobArtifacts(baseUrl: string, apiKey: string, jobId: string | null) {
   const isApiJob = Boolean(jobId && !jobId.startsWith("hist_"));
   return useQuery({
-    queryKey: ["job-artifacts", baseUrl, jobId],
+    queryKey: ["job-artifacts", baseUrl, apiKey, jobId],
     enabled: isApiJob,
     queryFn: () =>
       apiGet<{ job_id: string; artifacts: JobArtifact[] }>(
@@ -326,7 +351,7 @@ export function useJobArtifacts(baseUrl: string, apiKey: string, jobId: string |
 
 export function useOutboxStats(baseUrl: string, apiKey: string) {
   return useQuery({
-    queryKey: ["outbox-stats", baseUrl],
+    queryKey: ["outbox-stats", baseUrl, apiKey],
     queryFn: () => apiGet<{ by_status: Record<string, number> }>(baseUrl, apiKey, "/operations/outbox/stats"),
     refetchInterval: 15000,
   });
@@ -334,7 +359,7 @@ export function useOutboxStats(baseUrl: string, apiKey: string) {
 
 export function useOutboxRows(baseUrl: string, apiKey: string, status?: string, limit = 50) {
   return useQuery({
-    queryKey: ["outbox-rows", baseUrl, status, limit],
+    queryKey: ["outbox-rows", baseUrl, apiKey, status, limit],
     queryFn: () =>
       apiGet<{ data: OutboxRow[] }>(
         baseUrl,
@@ -352,7 +377,7 @@ export function useOperationJobs(
   month?: string
 ) {
   return useQuery({
-    queryKey: ["operations-jobs", baseUrl, limit, year, month],
+    queryKey: ["operations-jobs", baseUrl, apiKey, limit, year, month],
     refetchInterval: 10_000,
     queryFn: async () => {
       const q = new URLSearchParams({ limit: String(limit) });
@@ -377,7 +402,7 @@ export function useExecutionHistory(
   limit = 500
 ) {
   return useQuery({
-    queryKey: ["operations-history", baseUrl, year, fromMonth, toMonth, limit],
+    queryKey: ["operations-history", baseUrl, apiKey, year, fromMonth, toMonth, limit],
     queryFn: () =>
       apiGet<ExecutionHistoryResponse>(
         baseUrl,

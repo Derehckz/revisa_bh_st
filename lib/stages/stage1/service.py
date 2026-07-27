@@ -29,20 +29,23 @@ def _batch_preview_table(
     ano: str,
     df,
     indices,
+    *,
+    fecha_limite: str | None = None,
+    horario_limite: str | None = None,
 ) -> None:
     if tipo_envio == "recordatorio":
-        fecha_limite = config.ULT_FECHA_RECORDATORIO
-        horario_limite = config.HORARIO_RECORDATORIO
+        fecha_mostrar = fecha_limite or config.ULT_FECHA_RECORDATORIO
+        horario_mostrar = horario_limite or config.HORARIO_RECORDATORIO
         fecha_label = "Fecha límite recordatorio"
         hora_label = "Horario límite recordatorio"
     else:
-        fecha_limite = config.ULT_FECHA_RECEPCION
-        horario_limite = config.HORARIO_RECEPCION
+        fecha_mostrar = fecha_limite or config.ULT_FECHA_RECEPCION
+        horario_mostrar = horario_limite or config.HORARIO_RECEPCION
         fecha_label = "Fecha límite recepción"
         hora_label = "Horario límite recepción"
     rows = [
-        (fecha_label, str(fecha_limite)),
-        (hora_label, str(horario_limite)),
+        (fecha_label, str(fecha_mostrar)),
+        (hora_label, str(horario_mostrar)),
         ("Correos a enviar", str(cantidad)),
         ("Tipo", tipo_envio),
         ("Período", f"{mes} {ano}"),
@@ -224,6 +227,13 @@ class Stage1Service:
             force_resend=ctx.force_resend,
         )
 
+        if ctx.reminders_only:
+            indices_sin_envio = df.iloc[0:0].index
+            ui.log(
+                "Modo solo recordatorios: no se envían solicitudes originales.",
+                level="info",
+            )
+
         ui.log(f"Pendientes envío original: {len(indices_sin_envio)}", level="info")
         ui.log(f"Pendientes recordatorio: {len(indices_recordatorio)}", level="info")
 
@@ -279,8 +289,16 @@ class Stage1Service:
                 mes_seleccionado,
                 deadline_kwargs,
             )
-        except Exception:
-            pass
+            ui.log(
+                "Plazos de este envío: "
+                f"recepción {deadline_kwargs['fecha_limite_recepcion']} "
+                f"{deadline_kwargs['horario_recepcion']} | "
+                f"recordatorio {deadline_kwargs['fecha_limite_recordatorio']} "
+                f"{deadline_kwargs['horario_recordatorio']}",
+                level="info",
+            )
+        except Exception as exc:
+            ui.log(f"No se pudieron guardar plazos del período: {exc}", level="warning")
 
         stats_total: dict[str, int] = {}
 
@@ -312,6 +330,8 @@ class Stage1Service:
                         ano_seleccionado,
                         df,
                         indices_sin_envio,
+                        fecha_limite=deadline_kwargs["fecha_limite_recepcion"],
+                        horario_limite=deadline_kwargs["horario_recepcion"],
                     )
                     if ctx.supervision_mode == SupervisionMode.BATCH:
                         if ui.confirm_yes_no(
@@ -339,6 +359,8 @@ class Stage1Service:
                         ano_seleccionado,
                         df,
                         indices_recordatorio,
+                        fecha_limite=deadline_kwargs["fecha_limite_recordatorio"],
+                        horario_limite=deadline_kwargs["horario_recordatorio"],
                     )
                     if ctx.supervision_mode == SupervisionMode.BATCH:
                         if ui.confirm_yes_no(

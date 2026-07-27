@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Mail, Play, Square } from "lucide-react";
 import type { Period, Step0OptionsResponse } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
@@ -24,6 +24,8 @@ type Props = {
   apiKey: string;
   disabled?: boolean;
   onGoToNextStage?: () => void;
+  /** Prefija el modo «solo recordatorios» (p.ej. desde la sugerencia post 3/5). */
+  remindersOnlyInitial?: boolean;
 };
 
 export function Stage1InteractivePanel({
@@ -33,6 +35,7 @@ export function Stage1InteractivePanel({
   apiKey,
   disabled,
   onGoToNextStage,
+  remindersOnlyInitial = false,
 }: Props) {
   const excelDefaults = usePeriodExcelDefaults(selectedPeriod, options);
   const { confirmBeforeOperation } = usePeriodOperationGuard();
@@ -55,6 +58,7 @@ export function Stage1InteractivePanel({
   const [sendReal, setSendReal] = useState(true);
   const [sendConfirm, setSendConfirm] = useState(false);
   const [forceResend, setForceResend] = useState(false);
+  const [remindersOnly, setRemindersOnly] = useState(remindersOnlyInitial);
   const [fechaLimiteRecepcion, setFechaLimiteRecepcion] = useState("");
   const [horarioRecepcion, setHorarioRecepcion] = useState("19:00");
   const [fechaLimiteRecordatorio, setFechaLimiteRecordatorio] = useState("");
@@ -66,10 +70,19 @@ export function Stage1InteractivePanel({
   const outlookHealth = options.data?.outlook_health ?? null;
   const outlookBlocks = outlookBlocksStart(outlookHealth, outlookOverride);
 
-  // Plazos del período (API: guardados del mes o sugeridos para este mes — no el .env viejo).
+  // Plazos: hidratar una sola vez por período (no pisar ediciones si options se refetch).
+  const deadlinesHydratedFor = useRef<string>("");
   useEffect(() => {
+    setRemindersOnly(remindersOnlyInitial);
+  }, [remindersOnlyInitial, selectedPeriod.year, selectedPeriod.month_name]);
+  useEffect(() => {
+    deadlinesHydratedFor.current = "";
+  }, [selectedPeriod.year, selectedPeriod.month_name]);
+  useEffect(() => {
+    const periodKey = `${selectedPeriod.year}|${selectedPeriod.month_name}`;
     const schema = options.data?.params_schema ?? [];
     if (!schema.length) return;
+    if (deadlinesHydratedFor.current === periodKey) return;
     const pick = (name: string) => schema.find((f) => f.name === name)?.default;
     const fr = pick("fecha_limite_recepcion");
     const hr = pick("horario_recepcion");
@@ -79,6 +92,7 @@ export function Stage1InteractivePanel({
     if (hr != null && String(hr).trim()) setHorarioRecepcion(String(hr));
     if (frec != null && String(frec).trim()) setFechaLimiteRecordatorio(String(frec));
     if (hrec != null && String(hrec).trim()) setHorarioRecordatorio(String(hrec));
+    deadlinesHydratedFor.current = periodKey;
   }, [selectedPeriod.year, selectedPeriod.month_name, options.data?.params_schema]);
 
   const canStart = (!sendReal || sendConfirm) && !outlookBlocks;
@@ -101,6 +115,10 @@ export function Stage1InteractivePanel({
       setLocalError("Indica la hoja del Excel.");
       return;
     }
+    if (!fechaLimiteRecepcion.trim() || !fechaLimiteRecordatorio.trim()) {
+      setLocalError("Completa las fechas límite de recepción y recordatorio antes de enviar.");
+      return;
+    }
     if (sendReal && !sendConfirm) {
       setLocalError("Confirma el envío real a producción antes de iniciar.");
       return;
@@ -118,10 +136,11 @@ export function Stage1InteractivePanel({
         send: sendReal,
         force_resend: forceResend,
         strict: false,
+        reminders_only: remindersOnly,
         fecha_limite_recepcion: fechaLimiteRecepcion.trim(),
-        horario_recepcion: horarioRecepcion.trim(),
+        horario_recepcion: horarioRecepcion.trim() || "9:00",
         fecha_limite_recordatorio: fechaLimiteRecordatorio.trim(),
-        horario_recordatorio: horarioRecordatorio.trim(),
+        horario_recordatorio: horarioRecordatorio.trim() || horarioRecepcion.trim() || "9:00",
         supervision_mode: "batch",
         streamlined: true,
       });
@@ -167,7 +186,9 @@ export function Stage1InteractivePanel({
             Paso 1 — Enviar solicitudes
           </CardTitle>
           <p className="text-[0.8125rem] font-normal leading-snug text-muted-foreground">
-            Envía el lote por Outlook con una sola confirmación. Outlook debe estar abierto en esta máquina.
+            {remindersOnly
+              ? "Modo solo recordatorios: contacta docentes NO RECIBIDO sin reenviar solicitudes originales."
+              : "Envía el lote por Outlook con una sola confirmación. Outlook debe estar abierto en esta máquina."}
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -177,6 +198,16 @@ export function Stage1InteractivePanel({
             override={outlookOverride}
             onOverrideChange={setOutlookOverride}
           />
+          <label className="flex items-center gap-2 rounded-md border border-border/80 bg-muted/20 px-3 py-2 text-sm tracking-tight">
+            <input
+              type="checkbox"
+              className="rounded border-border"
+              checked={remindersOnly}
+              onChange={(e) => setRemindersOnly(e.target.checked)}
+              disabled={Boolean(session) || disabled}
+            />
+            Solo recordatorios (NO RECIBIDO)
+          </label>
           <label className="flex items-center gap-2 text-sm tracking-tight">
             <input
               type="checkbox"
@@ -205,9 +236,63 @@ export function Stage1InteractivePanel({
           {!sendReal && (
             <p className="text-[0.8125rem] text-muted-foreground">Solo vista previa: no se envían correos.</p>
           )}
+
+          <div className="space-y-3 rounded-md border border-border/80 bg-muted/20 p-3">
+            <p className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              Plazos que irán en el correo
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-[0.8125rem] font-medium tracking-tight">Correo original</p>
+                <label className="grid gap-1 text-[0.8125rem]">
+                  <span className="text-muted-foreground">Fecha límite recepción</span>
+                  <Input
+                    value={fechaLimiteRecepcion}
+                    onChange={(e) => setFechaLimiteRecepcion(e.target.value)}
+                    placeholder="28 Julio 2026"
+                    disabled={Boolean(session) || disabled}
+                  />
+                </label>
+                <label className="grid gap-1 text-[0.8125rem]">
+                  <span className="text-muted-foreground">Horario</span>
+                  <Input
+                    value={horarioRecepcion}
+                    onChange={(e) => setHorarioRecepcion(e.target.value)}
+                    placeholder="9:00"
+                    disabled={Boolean(session) || disabled}
+                  />
+                </label>
+              </div>
+              <div className="space-y-2">
+                <p className="text-[0.8125rem] font-medium tracking-tight">Recordatorio</p>
+                <label className="grid gap-1 text-[0.8125rem]">
+                  <span className="text-muted-foreground">Fecha límite</span>
+                  <Input
+                    value={fechaLimiteRecordatorio}
+                    onChange={(e) => setFechaLimiteRecordatorio(e.target.value)}
+                    placeholder="27 Julio 2026"
+                    disabled={Boolean(session) || disabled}
+                  />
+                </label>
+                <label className="grid gap-1 text-[0.8125rem]">
+                  <span className="text-muted-foreground">Horario</span>
+                  <Input
+                    value={horarioRecordatorio}
+                    onChange={(e) => setHorarioRecordatorio(e.target.value)}
+                    placeholder="9:00"
+                    disabled={Boolean(session) || disabled}
+                  />
+                </label>
+              </div>
+            </div>
+            <p className="text-2xs text-muted-foreground">
+              Se guardan para {selectedPeriod.month_name} {selectedPeriod.year} al iniciar. Formato: día Mes año.
+            </p>
+          </div>
+
           <details className="rounded-md border border-border/80 bg-muted/20">
             <summary className="cursor-pointer px-3 py-2 text-[0.8125rem] text-muted-foreground hover:text-foreground">
-              Opciones (archivo, plazos, reenvío)
+              Opciones (archivo, reenvío)
             </summary>
             <div className="space-y-3 border-t border-border/80 px-3 py-3">
               <InteractivePeriodExcelFields
@@ -227,44 +312,6 @@ export function Stage1InteractivePanel({
                 />
                 Forzar reenvío a quien ya recibió
               </label>
-              <p className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                Plazo correo original
-              </p>
-              <label className="grid gap-1 text-[0.8125rem]">
-                <span className="text-muted-foreground">Fecha límite recepción</span>
-                <Input
-                  value={fechaLimiteRecepcion}
-                  onChange={(e) => setFechaLimiteRecepcion(e.target.value)}
-                  disabled={Boolean(session) || disabled}
-                />
-              </label>
-              <label className="grid gap-1 text-[0.8125rem]">
-                <span className="text-muted-foreground">Horario</span>
-                <Input
-                  value={horarioRecepcion}
-                  onChange={(e) => setHorarioRecepcion(e.target.value)}
-                  disabled={Boolean(session) || disabled}
-                />
-              </label>
-              <p className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                Plazo recordatorio
-              </p>
-              <label className="grid gap-1 text-[0.8125rem]">
-                <span className="text-muted-foreground">Fecha</span>
-                <Input
-                  value={fechaLimiteRecordatorio}
-                  onChange={(e) => setFechaLimiteRecordatorio(e.target.value)}
-                  disabled={Boolean(session) || disabled}
-                />
-              </label>
-              <label className="grid gap-1 text-[0.8125rem]">
-                <span className="text-muted-foreground">Horario</span>
-                <Input
-                  value={horarioRecordatorio}
-                  onChange={(e) => setHorarioRecordatorio(e.target.value)}
-                  disabled={Boolean(session) || disabled}
-                />
-              </label>
             </div>
           </details>
           <div className="flex flex-wrap gap-2 pt-1">
@@ -274,7 +321,7 @@ export function Stage1InteractivePanel({
               disabled={disabled || starting || running || !canStart}
             >
               {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {sendReal ? "Enviar solicitudes" : "Solo vista previa"}
+              {sendReal ? (remindersOnly ? "Enviar recordatorios" : "Enviar solicitudes") : "Solo vista previa"}
             </Button>
             {running && (
               <Button type="button" variant="outline" onClick={() => void cancelSession()}>

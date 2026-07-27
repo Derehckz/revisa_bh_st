@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useAppConfig } from "@/app/app-config";
 import { useTheme } from "@/app/theme";
 import { mapApiErrorMessage } from "@/shared/api/client";
@@ -10,23 +11,40 @@ import { PageHeader } from "@/shared/ui/page-header";
 import { useToast } from "@/shared/ui/toast";
 
 export function SettingsPage() {
-  const { baseUrl, apiKey, setBaseUrl, setApiKey } = useAppConfig();
+  const { baseUrl, apiKey, setBaseUrl, setApiKey, sameOrigin } = useAppConfig();
   const { theme, toggleTheme } = useTheme();
   const { push } = useToast();
+  const queryClient = useQueryClient();
   const periods = usePeriods(baseUrl, apiKey);
   const health = useHealth(baseUrl);
+
+  const saveAndTest = () => {
+    void queryClient.invalidateQueries();
+    void health.refetch();
+    void periods.refetch().then((r) => {
+      if (r.error) {
+        push(mapApiErrorMessage(r.error as never), "error");
+      } else {
+        push("Conexión OK — clave guardada", "success");
+      }
+    });
+  };
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
         title="Ajustes"
-        description="Conexión a la API local y preferencias de la interfaz."
+        description="Conexión local y preferencias de la interfaz."
       />
 
-      {(health.isError || periods.isError) && (
+      {(health.isError || periods.isError || !apiKey.trim()) && (
         <ErrorState
-          title="Problemas de conectividad"
-          description={mapApiErrorMessage((health.error || periods.error) as never)}
+          title={!apiKey.trim() ? "Falta la API key" : "Problemas de conectividad"}
+          description={
+            !apiKey.trim()
+              ? "Abre el archivo .env en la raíz del proyecto, copia el valor de BH_API_KEY y pégalo abajo."
+              : mapApiErrorMessage((health.error || periods.error) as never)
+          }
           onRetry={() => {
             health.refetch();
             periods.refetch();
@@ -36,9 +54,11 @@ export function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Conexión API</CardTitle>
+          <CardTitle>Conexión</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            La clave no se envía a terceros; solo se guarda en este navegador.
+            {sameOrigin
+              ? "Modo embebido: la interfaz y la API comparten este servidor. Solo necesitas la API key del archivo .env (línea BH_API_KEY=…)."
+              : "La clave no se envía a terceros; solo se guarda en este navegador."}
           </p>
         </CardHeader>
         <CardContent className="grid gap-4">
@@ -48,20 +68,28 @@ export function SettingsPage() {
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="http://127.0.0.1:8000"
+              disabled={sameOrigin}
             />
+            {sameOrigin && (
+              <span className="text-2xs text-muted-foreground">Fijada al origen actual (start-bh).</span>
+            )}
           </label>
           <label className="grid gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">API key (x-api-key)</span>
             <Input
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Pega tu clave"
+              onChange={(e) => setApiKey(e.target.value.trim())}
+              placeholder="Pega solo el valor de BH_API_KEY (sin comillas)"
               type="password"
               autoComplete="off"
             />
+            <span className="text-2xs text-muted-foreground">
+              Archivo <code className="rounded bg-muted px-1">.env</code> en la raíz del proyecto →
+              copia solo el valor después de <code className="rounded bg-muted px-1">BH_API_KEY=</code>.
+            </span>
           </label>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => push("Configuración guardada", "success")}>Guardar</Button>
+            <Button onClick={saveAndTest}>Guardar y probar</Button>
             <Button variant="outline" onClick={toggleTheme}>
               Apariencia: {theme === "dark" ? "Oscuro" : "Claro"}
             </Button>

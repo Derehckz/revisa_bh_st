@@ -40,12 +40,16 @@ Variables mínimas esperadas:
 
 Referencia: `/.env.example`.
 
-## 3) Arranque de API
+## 3) Arranque de API / interfaz
 
-**Rápido (API + frontend):** en la raíz, doble clic en `start-web.bat` (o `.\start-web.ps1`).
-Detener: `stop-web.bat`. En Cursor: Run Task → **BH: Start Web (API + Frontend)**.
+**Oficina (recomendado):** doble clic `start-bh.bat` → **http://127.0.0.1:8000/**  
+(UI embebida en la API; construye `frontend/dist` si falta.)
 
-Solo API:
+**Desarrollo (hot-reload):** `start-web.bat` (API `:8000` + Vite `:5173`).
+
+Detener: `stop-bh.bat`. En Cursor: Run Task → **BH: Start (embebido :8000)**.
+
+Solo API (sin UI embebida si no hay `dist`):
 
 ```bash
 python -m uvicorn api.app:app --host 127.0.0.1 --port 8000

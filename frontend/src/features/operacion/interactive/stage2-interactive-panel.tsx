@@ -106,7 +106,7 @@ export function Stage2InteractivePanel({
         fecha_fin: fechaFin.trim(),
         dry_run: dryRun,
         streamlined: true,
-        duplicate_policy: "I",
+        duplicate_policy: "S",
       });
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : "No se pudo iniciar la sesión");
@@ -184,9 +184,26 @@ export function Stage2InteractivePanel({
             </label>
           </div>
           <p className="text-xs text-muted-foreground">
-            Por defecto todo el mes ({monthDefaults.inicio} — {monthDefaults.fin}). Puedes acotar el rango antes de
-            iniciar.
+            Rango del filtro Outlook (por defecto el mes: {monthDefaults.inicio} —{" "}
+            {monthDefaults.fin}). Tú defines inicio y fin; solo se bajan correos en ese
+            intervalo. Al reejecutar se sobrescriben archivos ya existentes con el mismo
+            folio.
           </p>
+          {fechaInicio.trim() !== monthDefaults.inicio && (
+            <p className="text-xs text-muted-foreground">
+              Inicio distinto al día 1 del mes.
+              <button
+                type="button"
+                className="ml-2 underline"
+                onClick={() => {
+                  setFechaInicio(monthDefaults.inicio);
+                  setFechaFin(monthDefaults.fin);
+                }}
+              >
+                Usar mes completo
+              </button>
+            </p>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

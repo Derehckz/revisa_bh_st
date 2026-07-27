@@ -4,7 +4,7 @@ import { Button } from "@/shared/ui/button";
 
 type Props = {
   recommendation: PeriodRecommendation;
-  onGoToStage: (stageNum: number) => void;
+  onGoToStage: (stageNum: number, opts?: { remindersOnly?: boolean }) => void;
   onGoToSeguimiento: () => void;
   onGoToAvanzado: () => void;
 };
@@ -20,7 +20,10 @@ export function NextStepCard({ recommendation, onGoToStage, onGoToSeguimiento, o
       return;
     }
     if (recommendation.stage_num != null) {
-      onGoToStage(recommendation.stage_num);
+      onGoToStage(recommendation.stage_num, {
+        remindersOnly:
+          recommendation.kind === "reminders" || Boolean(recommendation.params?.reminders_only),
+      });
     }
   }
 

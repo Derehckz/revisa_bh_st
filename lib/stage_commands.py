@@ -205,13 +205,20 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
                 required=False,
                 help_text="Ej: 19:00",
             ),
+            _param_field(
+                "reminders_only",
+                cli="--reminders-only",
+                label="Solo recordatorios (no solicitudes originales)",
+                default=False,
+                help_text="Útil tras el paso 3/5: solo contacta NO RECIBIDO.",
+            ),
         ]
     if stage_num == 5:
         return [
             _param_field(
                 "send",
                 cli="--send",
-                label="Enviar correos de recepción",
+                label="Enviar confirmaciones OK y observaciones (reenvío)",
                 default=True,
                 help_text="Activo = despacho real por Outlook desde web o consola.",
             ),

@@ -39,6 +39,28 @@
       "dependsOn": ["BH: API (uvicorn :8000)", "BH: Frontend (Vite :5173)"],
       "dependsOrder": "parallel",
       "problemMatcher": [],
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "BH: Build frontend (dist)",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}/build-web.ps1\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "BH: Start (embebido :8000)",
+      "dependsOn": ["BH: Build frontend (dist)", "BH: API (uvicorn :8000)"],
+      "dependsOrder": "sequence",
+      "problemMatcher": [],
       "group": {
         "kind": "build",
         "isDefault": true
@@ -48,9 +70,9 @@
       }
     },
     {
-      "label": "BH: Start Web (script Windows)",
+      "label": "BH: Start BH (script Windows)",
       "type": "shell",
-      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}/start-web.ps1\" -NoBrowser",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}/start-bh.ps1\" -NoBrowser",
       "options": {
         "cwd": "${workspaceFolder}"
       },

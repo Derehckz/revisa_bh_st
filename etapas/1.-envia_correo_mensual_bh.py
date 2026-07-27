@@ -90,5 +90,10 @@ if __name__ == "__main__":
         default="batch",
         help="batch: confirmación por lote (default CLI). per_mail: confirmar cada correo.",
     )
+    parser.add_argument(
+        "--reminders-only",
+        action="store_true",
+        help="Solo envía recordatorios a NO RECIBIDO (no solicitudes originales).",
+    )
     utils.register_non_interactive_cli(parser, with_send=True)
     main(parser.parse_args())

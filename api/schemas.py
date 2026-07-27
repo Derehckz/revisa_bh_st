@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 class HealthResponse(BaseModel):
     status: str
+    ui: str | None = None  # embedded | api_only
 
 
 class ErrorResponse(BaseModel):

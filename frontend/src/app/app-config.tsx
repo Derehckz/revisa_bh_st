@@ -5,15 +5,30 @@ type ConfigContextValue = {
   apiKey: string;
   setBaseUrl: (value: string) => void;
   setApiKey: (value: string) => void;
+  /** true cuando la UI se sirve desde el mismo origen que la API (modo BH embebido). */
+  sameOrigin: boolean;
 };
 
 const AppConfigContext = createContext<ConfigContextValue | null>(null);
 
-const defaultBaseUrl = localStorage.getItem("bh_base_url") || "http://127.0.0.1:8000";
-// E12: nunca cachear una API key "por defecto" que funcione en silencio. Si no
-// hay nada guardado en localStorage, arranca vacía y obliga a configurarla en
-// Ajustes; evita que un valor de ejemplo del repo termine autenticando en prod.
+function detectDefaultBaseUrl(): string {
+  const saved = localStorage.getItem("bh_base_url");
+  if (saved) return saved;
+  if (typeof window === "undefined") return "http://127.0.0.1:8000";
+  const port = window.location.port;
+  // Vite / preview: API en otro puerto
+  if (port === "5173" || port === "4173") {
+    return "http://127.0.0.1:8000";
+  }
+  // Servido por FastAPI (mismo origen)
+  return window.location.origin;
+}
+
+const defaultBaseUrl = detectDefaultBaseUrl();
 const defaultApiKey = localStorage.getItem("bh_api_key") || "";
+const sameOriginDefault =
+  typeof window !== "undefined" &&
+  defaultBaseUrl.replace(/\/$/, "") === window.location.origin.replace(/\/$/, "");
 
 export function AppConfigProvider({ children }: { children: React.ReactNode }) {
   const [baseUrl, _setBaseUrl] = useState(defaultBaseUrl);
@@ -29,7 +44,14 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
     _setApiKey(value);
   };
 
-  const value = useMemo(() => ({ baseUrl, apiKey, setBaseUrl, setApiKey }), [baseUrl, apiKey]);
+  const sameOrigin =
+    typeof window !== "undefined" &&
+    baseUrl.replace(/\/$/, "") === window.location.origin.replace(/\/$/, "");
+
+  const value = useMemo(
+    () => ({ baseUrl, apiKey, setBaseUrl, setApiKey, sameOrigin: sameOrigin || sameOriginDefault }),
+    [baseUrl, apiKey, sameOrigin]
+  );
   return <AppConfigContext.Provider value={value}>{children}</AppConfigContext.Provider>;
 }
 

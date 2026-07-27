@@ -27,6 +27,82 @@ class TestStage5Mail(unittest.TestCase):
         k = mail5.build_item_key("2026", "Mayo", "123", "a@b.cl")
         self.assertIn("2026", k)
         self.assertIn("a@b.cl", k)
+        self.assertTrue(k.endswith("|ok"))
+        k2 = mail5.build_item_key("2026", "Mayo", "123", "a@b.cl", kind="problema")
+        self.assertTrue(k2.endswith("|problema"))
+        self.assertNotEqual(k, k2)
+
+    def test_clasificar_fila_recepcion(self):
+        self.assertEqual(
+            mail5.clasificar_fila_recepcion({"Estado_Recepcion": "RECIBIDO"}),
+            "ok",
+        )
+        self.assertEqual(
+            mail5.clasificar_fila_recepcion({"Estado_Recepcion": "RECIBIDO CON ERROR"}),
+            "problema",
+        )
+        self.assertEqual(
+            mail5.clasificar_fila_recepcion(
+                {"Estado_Recepcion": "NO RECIBIDO", "Observacion_Descartes": "xml X: monto"}
+            ),
+            "problema",
+        )
+        self.assertIsNone(
+            mail5.clasificar_fila_recepcion(
+                {"Estado_Recepcion": "NO RECIBIDO", "Observacion_Descartes": ""}
+            )
+        )
+
+    def test_preview_problema_includes_issue(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "Estado_Recepcion": "RECIBIDO CON ERROR",
+                    "Email_Docente": "docente@ejemplo.cl",
+                    "NAME": "Ana",
+                    "EMPLID": "1-9",
+                    "RUT RAZON": "2-7",
+                    "CUS_TOT_HON": 1000,
+                    "numeroBoleta_XML": 55,
+                    "rutReceptorCompleto_XML": 11111111,
+                    "rutEmisorCompleto_XML": 22222222,
+                    "totalHonorarios_XML": 1000,
+                    "Observaciones": "Monto XML distinto al esperado",
+                    "Observacion_Descartes": "",
+                    "Correo_Recepcion_Enviado": "",
+                }
+            ]
+        )
+        ui = AutoAdapter(
+            allow_send=False,
+            auto_accept_confirm=True,
+            auto_accept_mail=True,
+        )
+        previews = []
+
+        class Capture(AutoAdapter):
+            def emit(self, event_type, payload=None):
+                if event_type == "mail.preview":
+                    previews.append(payload or {})
+                return super().emit(event_type, payload or {})
+
+        ui = Capture(allow_send=False, auto_accept_confirm=True, auto_accept_mail=True)
+        stats = mail5.procesar_correos(
+            ui,
+            df,
+            df,
+            año="2026",
+            mes="Julio",
+            modo_prueba=True,
+            allow_send=False,
+            force_resend=False,
+            supervision_mode=SupervisionMode.PER_MAIL,
+            outlook=None,
+        )
+        self.assertGreaterEqual(stats["previewed"], 1)
+        self.assertEqual(previews[0]["tipo"], "recepcion_problema")
+        self.assertIn("Monto XML distinto", previews[0]["mail"]["html_body"])
+        self.assertIn("brevedad", previews[0]["mail"]["html_body"].lower())
 
     def test_preview_only_per_mail_no_outlook(self):
         df = pd.DataFrame(
@@ -48,8 +124,7 @@ class TestStage5Mail(unittest.TestCase):
             auto_accept_confirm=True,
             auto_accept_mail=True,
         )
-        with patch("stages.stage5.mail.idempotency_store.was_success", return_value=False):
-            stats = mail5.procesar_correos(
+        stats = mail5.procesar_correos(
             ui,
             df,
             df[df["Estado_Recepcion"] == "RECIBIDO"],
@@ -60,7 +135,7 @@ class TestStage5Mail(unittest.TestCase):
             force_resend=False,
             supervision_mode=SupervisionMode.PER_MAIL,
             outlook=None,
-            )
+        )
         self.assertGreaterEqual(stats["previewed"], 1)
 
     def test_sent_marker_is_not_resent(self):
@@ -240,6 +315,8 @@ class TestStageContexts(unittest.TestCase):
             patch("stages.stage5.service.utils.is_non_interactive", return_value=False),
             patch("stages.stage5.service.utils.configurar_logging"),
             patch("stages.stage5.service.os.makedirs"),
+            patch("stages.stage5.service.conectar_outlook_app", return_value=MagicMock()),
+            patch("stages.stage5.service.bh_excel_workbook.replace_sheet_atomically", return_value=True),
         ):
             xls_cls.return_value.sheet_names = ["Solicitud"]
             ui_yes = _UI(True)

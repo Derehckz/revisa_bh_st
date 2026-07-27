@@ -25,6 +25,7 @@ class Stage1Context:
     supervision_mode: SupervisionMode = SupervisionMode.BATCH
     supervised: bool = False
     streamlined: bool = False
+    reminders_only: bool = False
 
     @classmethod
     def from_args(cls, args: Any) -> "Stage1Context":
@@ -49,6 +50,7 @@ class Stage1Context:
             allow_send=allow_send,
             supervision_mode=mode,
             streamlined=False,
+            reminders_only=bool(getattr(args, "reminders_only", False)),
         )
 
     @classmethod
@@ -93,6 +95,7 @@ class Stage1Context:
             supervision_mode=mode,
             supervised=True,
             streamlined=param_streamlined(params),
+            reminders_only=bool(params.get("reminders_only")),
         )
 
 

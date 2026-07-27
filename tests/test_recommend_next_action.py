@@ -78,6 +78,40 @@ class TestRecommendNextAction(unittest.TestCase):
         self.assertEqual(rec["kind"], "run")
         self.assertEqual(rec["stage_num"], 4)
 
+    def test_reminders_after_stage3_ok_with_pending(self):
+        stages = [
+            _stage(0, "OK"),
+            _stage(1, "OK"),
+            _stage(2, "OK"),
+            _stage(3, "OK"),
+            _stage(4, "OK"),
+            _stage(5, "OK"),
+            _stage(6, "READY"),
+        ]
+        rec = stage_operations.recommend_next_action(
+            stages,
+            kpis={"solicitud_exists": True, "no_recibidos": 12},
+        )
+        self.assertEqual(rec["kind"], "reminders")
+        self.assertEqual(rec["stage_num"], 1)
+        self.assertTrue(rec.get("params", {}).get("reminders_only"))
+
+    def test_inbound_ready_beats_reminders(self):
+        stages = [
+            _stage(0, "OK"),
+            _stage(1, "OK"),
+            _stage(2, "OK"),
+            _stage(3, "OK"),
+            _stage(4, "READY"),
+            _stage(5, "READY"),
+        ]
+        rec = stage_operations.recommend_next_action(
+            stages,
+            kpis={"solicitud_exists": True, "no_recibidos": 8},
+        )
+        self.assertEqual(rec["kind"], "run")
+        self.assertEqual(rec["stage_num"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()

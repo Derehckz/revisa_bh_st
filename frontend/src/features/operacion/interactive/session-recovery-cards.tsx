@@ -44,20 +44,36 @@ type SessionDoneCardProps = {
   detail: string;
   nextLabel?: string;
   onNext?: () => void;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
 };
 
-export function SessionDoneCard({ title, detail, nextLabel, onNext }: SessionDoneCardProps) {
+export function SessionDoneCard({
+  title,
+  detail,
+  nextLabel,
+  onNext,
+  secondaryLabel,
+  onSecondary,
+}: SessionDoneCardProps) {
   return (
     <Card className="border-success/25 bg-success/10">
       <CardHeader className="pb-2">
         <CardTitle className="text-[0.9375rem] text-success">{title}</CardTitle>
         <p className="text-[0.8125rem] font-normal leading-snug text-muted-foreground">{detail}</p>
       </CardHeader>
-      {nextLabel && onNext ? (
-        <CardContent>
-          <Button type="button" size="sm" onClick={onNext}>
-            {nextLabel}
-          </Button>
+      {(nextLabel && onNext) || (secondaryLabel && onSecondary) ? (
+        <CardContent className="flex flex-wrap gap-2">
+          {nextLabel && onNext ? (
+            <Button type="button" size="sm" onClick={onNext}>
+              {nextLabel}
+            </Button>
+          ) : null}
+          {secondaryLabel && onSecondary ? (
+            <Button type="button" size="sm" variant="outline" onClick={onSecondary}>
+              {secondaryLabel}
+            </Button>
+          ) : null}
         </CardContent>
       ) : null}
     </Card>

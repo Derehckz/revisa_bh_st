@@ -68,6 +68,22 @@ export function recommendFromOverview(overview: PeriodOverviewResponse): PeriodR
   }
 
   const ready = sorted.find((s) => s.ui_status === "READY" && s.enabled_for_api);
+  const noRecibidos = overview.kpis?.no_recibidos ?? 0;
+  const stage3Ok = sorted.some((s) => s.stage_num === 3 && s.ui_status === "OK");
+  const inboundReady =
+    ready != null && [2, 3, 4, 5].includes(ready.stage_num) && ready.enabled_for_api;
+
+  if (noRecibidos > 0 && stage3Ok && !inboundReady) {
+    return {
+      kind: "reminders",
+      stage_num: 1,
+      title: "Recordatorios a pendientes",
+      message: `Hay ${noRecibidos} fila(s) NO RECIBIDO. Vuelve al paso 1 en modo solo recordatorios.`,
+      action_label: "Paso 1 · solo recordatorios",
+      params: { reminders_only: true },
+    };
+  }
+
   if (ready) {
     return {
       kind: "run",

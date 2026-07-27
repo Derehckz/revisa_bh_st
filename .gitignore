@@ -11,6 +11,7 @@
 .env.*.local
 
 # --- Runtime / estado local ---
+logs/
 .state/
 .logs/
 *.sqlite3

@@ -360,23 +360,25 @@ Tras cambiar `.env`, **reiniciar uvicorn**.
 
 ### Arranque rápido (web) — recomendado en Windows
 
-**Doble clic** en la raíz del proyecto:
+| Archivo | Uso |
+|---------|-----|
+| **[`start-bh.bat`](start-bh.bat)** | **Oficina / profesional:** un solo puerto (`:8000`), UI embebida en la API |
+| [`stop-bh.bat`](stop-bh.bat) | Detiene el servidor |
+| [`build-web.bat`](build-web.bat) | Solo regenera `frontend/dist` |
+| [`start-web.bat`](start-web.bat) | Desarrollo: API + Vite (`:5173`) con hot-reload |
 
-| Archivo | Acción |
-|---------|--------|
-| [`start-web.bat`](start-web.bat) | Abre API `:8000` + Vite `:5173` y el navegador |
-| [`stop-web.bat`](stop-web.bat) | Libera esos puertos |
+**Uso diario (oficina):** doble clic en `start-bh.bat` → se abre **http://127.0.0.1:8000/**  
+Primera vez: **Ajustes** → pegar `BH_API_KEY` del `.env`.
 
 Desde PowerShell:
 
 ```powershell
-.\start-web.ps1
-.\stop-web.ps1
+.\start-bh.ps1          # build automático si falta dist
+.\start-bh.ps1 -Rebuild # fuerza npm run build
+.\stop-bh.bat
 ```
 
-En **Cursor / VS Code**: `Terminal` → `Run Task…` → **BH: Start Web (API + Frontend)**.
-
-Primera vez en el navegador: **Ajustes** → pegar `BH_API_KEY` de tu `.env` (se guarda en el navegador).
+En **Cursor / VS Code**: `Run Task…` → **BH: Start (embebido :8000)** o **BH: Start Web (API + Frontend)** (dev).
 
 ### 1) Pipeline por consola (sin web)
 

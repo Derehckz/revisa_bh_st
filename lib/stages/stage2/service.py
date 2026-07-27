@@ -24,6 +24,13 @@ class Stage2Service:
             ui.log("La fecha de inicio no puede ser posterior a la fecha fin.", level="error")
             return {"ok": False}
 
+        if fecha_inicio.day != 1:
+            ui.log(
+                f"Nota: el rango empieza el {fecha_inicio.strftime('%d/%m/%Y')} "
+                "(no el día 1). Solo se bajarán correos desde esa fecha.",
+                level="info",
+            )
+
         anio = str(fecha_inicio.year)
         mes_nombre = MESES_ES[fecha_inicio.month - 1]
         carpeta_mes = os.path.join(ext.CARPETA_BASE, anio, mes_nombre)
@@ -121,7 +128,9 @@ class Stage2Service:
             politica = ext.decidir_politica_duplicados(
                 ui,
                 duplicados,
-                preset=ctx.duplicate_policy or ("I" if ctx.streamlined else None),
+                # Re-ejecutar debe poder refrescar archivos; «I» dejaba boletas
+                # nuevas sin bajar si el usuario creía que «ya corrió» el paso 2.
+                preset=ctx.duplicate_policy or ("S" if ctx.streamlined else None),
             )
         except SessionCancelled:
             ui.log("Cancelado.", level="warning")
@@ -131,6 +140,18 @@ class Stage2Service:
             ui, rutas, politica_duplicados=politica, dry_run=ctx.dry_run
         )
 
+        faltantes = [] if ctx.dry_run else ext.verificar_pares_en_disco(mensajes)
+        if faltantes:
+            ui.log(
+                f"CRÍTICO: {len(faltantes)} adjunto(s) bhe_ del rango siguen sin archivo "
+                "en disco tras guardar. Revisa Outlook/permisos y vuelve a ejecutar "
+                "con política Sobrescribir (S).",
+                level="error",
+            )
+            for sample in faltantes[:15]:
+                ui.log(f"  Falta: {sample}", level="error")
+            ui.emit("save.missing", {"count": len(faltantes), "sample": faltantes[:20]})
+
         ui.table(
             "Resumen final",
             [
@@ -138,6 +159,7 @@ class Stage2Service:
                 ("Adjuntos guardados", str(stats["guardados"])),
                 ("PDF", str(stats["pdf"])),
                 ("XML", str(stats["xml"])),
+                ("Aún faltantes en disco", str(len(faltantes))),
                 ("Política duplicados", politica or "—"),
                 ("Log", log_file),
             ],
@@ -153,6 +175,7 @@ class Stage2Service:
             "emails": emails_ok,
             "log_file": log_file,
             "duplicate_policy": politica,
+            "missing_on_disk": len(faltantes),
             **stats,
         }
         ui.emit("session.summary", result)

@@ -206,6 +206,16 @@ def generar_asunto_recepcion(numero_boleta: str) -> str:
     return f"✅ Confirmación de Recepción de Boleta de Honorarios - Boleta n°{numero_boleta}"
 
 
+def generar_asunto_recepcion_problema(*, mes: str, año: str | int, numero_boleta: str | None = None) -> str:
+    boleta = (str(numero_boleta or "").strip())
+    if boleta and boleta.upper() not in {"N/A", "NAN", "NONE"}:
+        return (
+            f"⚠️ Observación: Boleta de Honorarios {mes} {año} — "
+            f"requiere corrección (boleta n°{boleta})"
+        )
+    return f"⚠️ Observación: Boleta de Honorarios {mes} {año} — requiere corrección y reenvío"
+
+
 def generar_cuerpo_recepcion(
     nombre: str,
     numero_boleta: str,
@@ -264,6 +274,94 @@ def generar_cuerpo_recepcion(
         <div style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
             <p>Este es un mensaje automático generado por el sistema de procesamiento de boletas.</p>
             <p>Por favor, no responda directamente a este correo si no es necesario.</p>
+        </div>
+    </div>
+    """
+
+
+def generar_cuerpo_recepcion_problema(
+    *,
+    nombre: str,
+    mes: str,
+    año: str | int,
+    problema: str,
+    detalle_descartes: str = "",
+    monto_esperado: float | int | str | None = None,
+    rut_razon: str = "",
+    numero_boleta: str = "",
+    emplid: str = "",
+) -> str:
+    """Aviso cuando llegó BH con error o no hizo match con la solicitud."""
+    problema_txt = _safe_str(problema).strip() or "La boleta recibida no coincide con la solicitud."
+    descartes_txt = _safe_str(detalle_descartes).strip()
+    monto_txt = _format_monto(monto_esperado) if monto_esperado not in (None, "") else "N/A"
+    boleta_txt = _safe_str(numero_boleta).strip() or "N/A"
+    rut_txt = _safe_str(rut_razon).strip() or "N/A"
+    emplid_txt = _safe_str(emplid).strip() or "N/A"
+    descartes_block = ""
+    if descartes_txt:
+        descartes_block = f"""
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #6c757d;">
+                <h3 style="color: #343a40; margin: 0 0 10px 0;">📎 Detalle de archivos revisados</h3>
+                <p style="margin: 0; color: #495057; font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{descartes_txt}</p>
+            </div>
+        """
+    return f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #dc3545; margin: 0;">⚠️ Observación en su Boleta de Honorarios</h1>
+            <p style="color: #666; font-size: 16px; margin: 5px 0;">
+                Período {str(mes).capitalize()} {año} — se requiere corrección y reenvío
+            </p>
+        </div>
+
+        <div style="background-color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <p style="font-size: 18px; color: #333; margin-bottom: 15px;">
+                <b>Estimado(a) {nombre}:</b>
+            </p>
+
+            <p style="font-size: 16px; line-height: 1.6; color: #555;">
+                Revisamos la documentación asociada a su solicitud de boleta de honorarios de
+                <strong>{str(mes).capitalize()} {año}</strong>.
+                <strong>No pudimos validarla correctamente</strong> (llegó con error o no coincidió
+                con los datos de la solicitud). Le pedimos <strong>reenviar a la brevedad</strong>
+                el par PDF + XML con prefijo <strong>bhe_</strong>, emitido a la razón social correcta
+                y por el monto indicado.
+            </p>
+
+            <div style="background-color: #f8d7da; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #dc3545;">
+                <h3 style="color: #721c24; margin: 0 0 10px 0;">❗ Problema detectado</h3>
+                <p style="margin: 0; color: #721c24; font-size: 15px; line-height: 1.5;">{problema_txt}</p>
+            </div>
+
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ffc107;">
+                <h3 style="color: #856404; margin: 0 0 10px 0;">📋 Datos de la solicitud</h3>
+                <ul style="list-style: none; padding: 0; margin: 0; color: #856404;">
+                    <li style="margin-bottom: 8px;"><strong>ID / EMPLID:</strong> {emplid_txt}</li>
+                    <li style="margin-bottom: 8px;"><strong>RUT razón (receptor esperado):</strong> {rut_txt}</li>
+                    <li style="margin-bottom: 8px;"><strong>Monto esperado:</strong> {monto_txt}</li>
+                    <li style="margin-bottom: 8px;"><strong>Nº boleta revisada (si aplica):</strong> {boleta_txt}</li>
+                </ul>
+            </div>
+            {descartes_block}
+            <div style="background-color: #e8f5e8; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #2E8B57;">
+                <h3 style="color: #2E8B57; margin: 0 0 10px 0;">✅ Qué hacer ahora</h3>
+                <ul style="margin: 0; padding-left: 20px; color: #2E8B57;">
+                    <li>Corrija el problema indicado arriba.</li>
+                    <li>Reenvíe PDF y XML juntos (mismo número de boleta), con nombre <strong>bhe_…</strong>.</li>
+                    <li>Responda este correo si necesita ayuda o ya reenvió la documentación.</li>
+                </ul>
+            </div>
+
+            <div style="text-align: center; margin-top: 30px;">
+                <p style="font-size: 16px; color: #666; margin-bottom: 10px;">
+                    💼 <strong>Equipo de Convenio Los Lagos</strong>
+                </p>
+            </div>
+        </div>
+
+        <div style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
+            <p>Este es un mensaje automático generado por el sistema de procesamiento de boletas.</p>
         </div>
     </div>
     """

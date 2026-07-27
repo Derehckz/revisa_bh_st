@@ -101,6 +101,7 @@ export type RunStagesResponse = {
 
 export type HealthResponse = {
   status: string;
+  ui?: string | null;
 };
 
 export type YearStatsResponse = {
@@ -366,16 +367,37 @@ export type ExcelAvanceMailCounts = {
 
 export type ExcelAvanceRow = {
   row: number;
+  emplid?: string;
+  rut_sin_dv?: string;
   name: string;
   sede: string;
+  location?: string;
   email: string;
+  email_dp?: string;
+  rut_razon?: string;
+  nombre_razon?: string;
+  direccion_razon?: string;
+  glosa?: string;
   estado_recepcion: string;
   correo_enviado: string;
   correo_clase: string;
   recordatorios: string;
+  observaciones?: string;
+  observacion_descartes?: string;
   archivo_xml: string;
+  archivo_xml_usado?: string;
   observaciones_xml: string;
   xml_clase: string;
+  numero_boleta_xml?: string;
+  fecha_boleta_xml?: string;
+  rut_emisor_xml?: string;
+  rut_receptor_xml?: string;
+  nombre_receptor_xml?: string;
+  total_honorarios_xml?: string;
+  liquido_honorarios_xml?: string;
+  impuesto_honorarios_xml?: string;
+  descripcion_xml?: string;
+  correo_recepcion_enviado?: string;
   monto: string;
 };
 
@@ -460,7 +482,14 @@ export type PeriodOverviewStage = PipelineStageMeta & {
   } | null;
 };
 
-export type RecommendationKind = "run" | "wait" | "fix" | "complete" | "review" | "outbox";
+export type RecommendationKind =
+  | "run"
+  | "wait"
+  | "fix"
+  | "complete"
+  | "review"
+  | "outbox"
+  | "reminders";
 
 export type PeriodRecommendation = {
   kind: RecommendationKind;
@@ -468,6 +497,7 @@ export type PeriodRecommendation = {
   title: string;
   message: string;
   action_label?: string;
+  params?: { reminders_only?: boolean };
 };
 
 export type SyncStatus = {
@@ -484,6 +514,36 @@ export type PeriodOverviewResponse = {
   outbox_stats: Record<string, number>;
   sync_status?: SyncStatus;
   recommendation?: PeriodRecommendation;
+};
+
+export type InboxGapItem = {
+  rut: string;
+  folio: string;
+  name: string;
+  email: string;
+  monto_solicitud?: number | string | null;
+  received_time: string;
+  subject: string;
+  sender: string;
+  attachments: string[];
+  missing_pdf: boolean;
+  missing_xml: boolean;
+  suggested_action: string;
+};
+
+export type InboxGapsResponse = {
+  ok: boolean;
+  error?: string;
+  message?: string;
+  year: number;
+  month: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  carpeta?: string;
+  no_recibidos: number;
+  emails_scanned: number;
+  gaps: InboxGapItem[];
+  gap_count: number;
 };
 
 export type JobArtifact = {

@@ -20,6 +20,8 @@ type Props = {
   apiKey: string;
   disabled?: boolean;
   onGoToNextStage?: () => void;
+  onGoToReminders?: () => void;
+  noRecibidos?: number;
 };
 
 export function Stage3InteractivePanel({
@@ -29,6 +31,8 @@ export function Stage3InteractivePanel({
   apiKey,
   disabled,
   onGoToNextStage,
+  onGoToReminders,
+  noRecibidos = 0,
 }: Props) {
   const excelDefaults = usePeriodExcelDefaults(selectedPeriod, options);
 
@@ -210,11 +214,19 @@ export function Stage3InteractivePanel({
           title={excelSaved ? "Planilla guardada" : "Paso terminado"}
           detail={
             excelSaved
-              ? "Solicitud.xlsx ya tiene el estado de recepción. Puedes seguir al paso 4."
+              ? noRecibidos > 0
+                ? `Solicitud.xlsx actualizado. Hay ${noRecibidos} NO RECIBIDO: puedes seguir al paso 4 o enviar recordatorios.`
+                : "Solicitud.xlsx ya tiene el estado de recepción. Puedes seguir al paso 4."
               : "Revisa el detalle abajo. Si no se guardó el Excel, vuelve a ejecutar con el archivo cerrado."
           }
           nextLabel={onGoToNextStage ? "Ir al paso 4" : undefined}
           onNext={onGoToNextStage}
+          secondaryLabel={
+            noRecibidos > 0 && onGoToReminders
+              ? `Recordatorios (${noRecibidos})`
+              : undefined
+          }
+          onSecondary={onGoToReminders}
         />
       )}
 

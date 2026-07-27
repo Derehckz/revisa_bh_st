@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import uuid
@@ -102,8 +103,8 @@ def create_session(stage_num: int, params: dict[str, Any]) -> dict[str, Any]:
             import period_mail_config
 
             period_mail_config.save_deadlines(year, month, params)
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.warning("No se guardaron plazos del período al crear sesión: %s", exc)
     _persist_meta(_public_meta(session))
     return _public_meta(session)
 

@@ -9,6 +9,7 @@ from typing import Any
 import config
 import ops_execution_history
 import stage_commands
+import inbox_gaps
 
 def _month_dir(year: int | str, month: str) -> str:
     return os.path.join(config.RAIZ, str(year), month)
@@ -442,42 +443,54 @@ def excel_avance(year: int | str, month: str, *, row_limit: int = 500) -> dict[s
             limit = min(int(row_limit), len(df))
             out["rows_truncated"] = len(df) > limit
             rows: list[dict[str, Any]] = []
+
+            def _f(row_obj: Any, *names: str) -> str:
+                for name in names:
+                    if name in df.columns:
+                        return _cell_str(row_obj.get(name))
+                return ""
+
             for idx in range(limit):
                 row = df.iloc[idx]
+                correo_raw = row.get("Correo Enviado") if "Correo Enviado" in df.columns else ""
+                obs_xml_raw = (
+                    row.get("Observaciones_XML") if "Observaciones_XML" in df.columns else ""
+                )
                 rows.append(
                     {
                         "row": int(idx) + 2,
-                        "name": _cell_str(row.get("NAME") if "NAME" in df.columns else ""),
-                        "sede": _cell_str(row.get("SEDE") if "SEDE" in df.columns else ""),
-                        "email": _cell_str(
-                            row.get("Email_Docente") if "Email_Docente" in df.columns else ""
-                        ),
-                        "estado_recepcion": _cell_str(
-                            row.get("Estado_Recepcion") if "Estado_Recepcion" in df.columns else ""
-                        ),
-                        "correo_enviado": _cell_str(
-                            row.get("Correo Enviado") if "Correo Enviado" in df.columns else ""
-                        ),
-                        "correo_clase": _classify_mail_flag(
-                            row.get("Correo Enviado") if "Correo Enviado" in df.columns else ""
-                        ),
-                        "recordatorios": _cell_str(
-                            row.get("Recordatorios Enviados")
-                            if "Recordatorios Enviados" in df.columns
-                            else ""
-                        ),
-                        "archivo_xml": _cell_str(
-                            row.get("archivo_xml") if "archivo_xml" in df.columns else ""
-                        ),
-                        "observaciones_xml": _cell_str(
-                            row.get("Observaciones_XML") if "Observaciones_XML" in df.columns else ""
-                        ),
-                        "xml_clase": _classify_xml_obs(
-                            row.get("Observaciones_XML") if "Observaciones_XML" in df.columns else ""
-                        ),
-                        "monto": _cell_str(
-                            row.get("CUS_TOT_HON") if "CUS_TOT_HON" in df.columns else ""
-                        ),
+                        "emplid": _f(row, "EMPLID"),
+                        "rut_sin_dv": _f(row, "RUT_SIN_DV"),
+                        "name": _f(row, "NAME"),
+                        "sede": _f(row, "SEDE"),
+                        "location": _f(row, "LOCATION"),
+                        "email": _f(row, "Email_Docente"),
+                        "email_dp": _f(row, "Email_DP"),
+                        "rut_razon": _f(row, "RUT RAZON"),
+                        "nombre_razon": _f(row, "NOMBRE RAZON"),
+                        "direccion_razon": _f(row, "DireccionRazon"),
+                        "glosa": _f(row, "GLOSA"),
+                        "estado_recepcion": _f(row, "Estado_Recepcion"),
+                        "correo_enviado": _f(row, "Correo Enviado"),
+                        "correo_clase": _classify_mail_flag(correo_raw),
+                        "recordatorios": _f(row, "Recordatorios Enviados"),
+                        "observaciones": _f(row, "Observaciones"),
+                        "observacion_descartes": _f(row, "Observacion_Descartes"),
+                        "archivo_xml": _f(row, "archivo_xml"),
+                        "archivo_xml_usado": _f(row, "Archivo_XML_Usado"),
+                        "observaciones_xml": _f(row, "Observaciones_XML"),
+                        "xml_clase": _classify_xml_obs(obs_xml_raw),
+                        "numero_boleta_xml": _f(row, "numeroBoleta_XML"),
+                        "fecha_boleta_xml": _f(row, "fechaBoleta_XML"),
+                        "rut_emisor_xml": _f(row, "rutEmisorCompleto_XML"),
+                        "rut_receptor_xml": _f(row, "rutReceptorCompleto_XML"),
+                        "nombre_receptor_xml": _f(row, "nombreReceptor_XML"),
+                        "total_honorarios_xml": _f(row, "totalHonorarios_XML"),
+                        "liquido_honorarios_xml": _f(row, "liquidoHonorarios_XML"),
+                        "impuesto_honorarios_xml": _f(row, "impuestoHonorarios_XML"),
+                        "descripcion_xml": _f(row, "descripcionLinea_XML"),
+                        "correo_recepcion_enviado": _f(row, "Correo_Recepcion_Enviado"),
+                        "monto": _f(row, "CUS_TOT_HON"),
                     }
                 )
             out["rows"] = rows
@@ -535,6 +548,22 @@ def ui_status_for_stage(
     if not prerequisites_summary(checklist)["ok"]:
         return "BLOCKED"
     return "READY"
+
+
+def inbox_gaps_scan(
+    year: int | str,
+    month: str,
+    *,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> dict[str, Any]:
+    """Huecos Inbox↔carpeta para filas NO RECIBIDO (detector Maass)."""
+    return inbox_gaps.detectar_huecos_inbox(
+        year,
+        month,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
 
 
 def period_overview(
@@ -716,6 +745,33 @@ def recommend_next_action(
             (s for s in sorted_stages if _is_ready_stage(s) and int(s["stage_num"]) > 0),
             None,
         )
+
+    no_recibidos = int(kpis.get("no_recibidos") or 0)
+    stage3 = next((s for s in sorted_stages if int(s.get("stage_num", -1)) == 3), None)
+    stage3_ok = bool(stage3 and stage3.get("ui_status") == "OK")
+
+    def _reminders_recommendation() -> dict[str, Any]:
+        return {
+            "kind": "reminders",
+            "stage_num": 1,
+            "title": "Recordatorios a pendientes",
+            "message": (
+                f"Hay {no_recibidos} fila(s) NO RECIBIDO. "
+                "Vuelve al paso 1 en modo solo recordatorios (no reenvía solicitudes originales)."
+            ),
+            "action_label": "Paso 1 · solo recordatorios",
+            "params": {"reminders_only": True},
+        }
+
+    # Tras validar (paso 3 OK), si ya no hay trabajo de recepción 2–5 pendiente
+    # y aún faltan boletas → priorizar recordatorios antes de pasos ≥6 o “completo”.
+    if no_recibidos > 0 and stage3_ok:
+        inbound_ready = (
+            ready is not None and int(ready.get("stage_num", -1)) in (2, 3, 4, 5)
+        )
+        if not inbound_ready:
+            return _reminders_recommendation()
+
     if ready:
         sn = int(ready["stage_num"])
         hint = _stage_run_hint(ready, kpis)
@@ -733,6 +789,8 @@ def recommend_next_action(
         return s.get("ui_status") == "OK"
 
     if api_stages and all(_effectively_complete(s) for s in api_stages):
+        if no_recibidos > 0 and stage3_ok:
+            return _reminders_recommendation()
         return {
             "kind": "complete",
             "stage_num": 10,
@@ -740,6 +798,9 @@ def recommend_next_action(
             "message": "Todos los pasos 0–10 muestran última ejecución OK. Revisa carpeta/revisión o consola si falta algo manual.",
             "action_label": "Ver paso 10",
         }
+
+    if no_recibidos > 0 and stage3_ok:
+        return _reminders_recommendation()
 
     return {
         "kind": "review",

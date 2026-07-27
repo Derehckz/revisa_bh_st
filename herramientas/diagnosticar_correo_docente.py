@@ -91,7 +91,14 @@ def main() -> int:
 
     email = args.email.strip().lower()
     email_local = email.split("@")[0]
-    rut_digits = "".join(ch for ch in args.rut if ch.isdigit())
+    # Cuerpo sin DV: "7819594-0" → 7819594 (los adjuntos SII son bhe_7819594-NNN)
+    rut_raw = args.rut.strip().upper().replace(".", "").replace(" ", "")
+    if "-" in rut_raw:
+        rut_digits = "".join(ch for ch in rut_raw.split("-", 1)[0] if ch.isdigit())
+    else:
+        rut_digits = "".join(ch for ch in rut_raw if ch.isdigit())
+        if len(rut_digits) >= 8:
+            rut_digits = rut_digits[:-1]
     inicio = _parse_fecha(args.fecha_inicio)
     fin = _parse_fecha(args.fecha_fin).replace(hour=23, minute=59, second=59)
 
