@@ -12,6 +12,7 @@ import config
 import schema_validator
 import utils
 from db import file_repository
+from db.period_projector import project_dataframe
 from interaction.exceptions import SessionCancelled
 from interaction.port import InteractionPort
 from stages.context import Stage4Context
@@ -149,6 +150,19 @@ class Stage4Service:
             )
         except SessionCancelled:
             return {"ok": False, "cancelled": True}
+
+        if mes_num > 0:
+            proj = project_dataframe(
+                year=int(año),
+                month_num=mes_num,
+                month_name=mes,
+                df=df,
+            )
+            ui.log(
+                f"DB projector: {proj.get('projected', 0)} fila(s) sincronizadas, "
+                f"{proj.get('failed', 0)} con fallo.",
+                level="info",
+            )
 
         if ctx.supervised and not confirm_unless_streamlined(
             ui,

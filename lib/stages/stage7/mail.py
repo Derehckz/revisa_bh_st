@@ -23,52 +23,64 @@ EMAIL_COPIA = ""
 
 
 def normalizar_monto_liquido(valor):
+    """Convierte montos de hoja Pagos (escala Contabilidad) a pesos enteros para el correo.
+
+    Contabilidad envía en el mail/CSV valores como 108.000, 91.530, 542.4 o 339
+    (miles de pesos). En la hoja Pagos quedan como 108.0 / 91.53 / 542.4 / 339.
+    Regla: si |valor| < 1000 → ×1000; si ya es pesos (>=1000) se deja.
+    """
     if pd.isna(valor):
         return 0
+    if isinstance(valor, bool):
+        return int(valor)
     if isinstance(valor, int):
+        if abs(valor) < 1000:
+            return int(valor * 1000)
         return valor
     if isinstance(valor, float):
         if abs(valor) < 1000:
-            texto_float = f"{valor:.12f}".rstrip("0").rstrip(".")
-            if "." in texto_float:
-                decimales = texto_float.split(".")[1]
-                if len(decimales) in (2, 3):
-                    return int(round(valor * 1000))
-        texto_float = f"{valor:.12f}".rstrip("0").rstrip(".")
-        if "." in texto_float:
-            decimales = texto_float.split(".")[1]
-            if len(decimales) == 3 and abs(valor) < 10000:
-                return int(round(valor * 1000))
-        return int(round(float(valor)))
+            return int(round(valor * 1000))
+        return int(round(valor))
+
     texto = str(valor).strip()
     if not texto:
         return 0
-    texto = texto.replace("$", "").replace(" ", "")
+    texto = texto.replace("$", "").replace(" ", "").replace("\u00a0", "")
     texto = re.sub(r"[^\d,.\-]", "", texto)
+    if not texto or texto in {".", ",", "-", "-.", ".-"}:
+        return 0
+
+    # 1.234.567 o 108.000 (miles CL con puntos)
+    if "." in texto and "," not in texto:
+        partes = texto.split(".")
+        if len(partes) > 1 and all(p.isdigit() or (i == 0 and p.lstrip("-").isdigit()) for i, p in enumerate(partes)):
+            cuerpo0 = partes[0].lstrip("-")
+            if partes[0].startswith("-"):
+                sign = -1
+            else:
+                sign = 1
+            if all(len(p) == 3 for p in partes[1:]) and cuerpo0.isdigit():
+                try:
+                    return sign * int(cuerpo0 + "".join(partes[1:]))
+                except ValueError:
+                    pass
+    # 1.234,56 → CL
     if "." in texto and "," in texto:
         texto = texto.replace(".", "").replace(",", ".")
-    elif "." in texto:
-        partes = texto.split(".")
-        if len(partes) > 1 and all(p.isdigit() for p in partes) and all(len(p) == 3 for p in partes[1:]):
-            texto = "".join(partes)
-        else:
-            try:
-                valor_num = float(texto)
-                decimales = len(partes[-1]) if len(partes) > 1 else 0
-                if abs(valor_num) < 1000 and decimales in (2, 3):
-                    return int(round(valor_num * 1000))
-            except (TypeError, ValueError):
-                pass
     elif "," in texto:
         partes = texto.split(",")
         if len(partes) > 1 and all(p.isdigit() for p in partes) and all(len(p) == 3 for p in partes[1:]):
             texto = "".join(partes)
         else:
             texto = texto.replace(",", ".")
+
     try:
-        return int(round(float(texto)))
+        num = float(texto)
     except (TypeError, ValueError):
-        return valor
+        return 0
+    if abs(num) < 1000:
+        return int(round(num * 1000))
+    return int(round(num))
 
 
 def normalizar_nro_cuenta(valor):

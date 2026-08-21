@@ -17,6 +17,7 @@ _DIR_STAGE_RULES: list[tuple[str, int | tuple[int, ...]]] = [
     ("logs_revision", 3),
     ("logs_extraccion_xml_excel", 4),
     ("logs_envio_recepcion", 5),
+    ("logs_informe", 6),
     ("logs_envios_pagos", 7),
     ("logs_separa", 8),
     ("logs_agrupa", 9),
@@ -60,21 +61,51 @@ def _parse_ts_from_name(filename: str) -> Optional[str]:
         return None
 
 
-def _infer_status_from_log(path: str) -> str:
+_API_NOISE_RE = re.compile(r"api\.request|api\.access|\"message\":\s*\"api\.request\"")
+_STAGE_SUCCESS_MARKERS = (
+    "return_code=0",
+    "completado",
+    "exitos",
+    "sin errores",
+    "outcome_send outcome=ok",
+    "outcome=ok",
+    "excel guardado",
+    "correo (",
+)
+
+
+def _read_log_sample(path: str, max_bytes: int = 80_000) -> str:
     try:
+        size = os.path.getsize(path)
         with open(path, encoding="utf-8", errors="replace") as f:
-            tail = f.read()[-8000:]
+            if size <= max_bytes:
+                return f.read()
+            head = f.read(max_bytes // 2)
+            f.seek(max(0, size - max_bytes // 2))
+            return head + "\n" + f.read()
     except OSError:
-        return "unknown"
-    low = tail.lower()
-    if "return_code=0" in low or "completado" in low or "exitos" in low or "sin errores" in low:
+        return ""
+
+
+def _stage_log_body(text: str) -> str:
+    """Quita tráfico HTTP de la API que a veces se filtra al log del paso."""
+    lines = [ln for ln in text.splitlines() if ln.strip() and not _API_NOISE_RE.search(ln)]
+    return "\n".join(lines)
+
+
+def _infer_status_from_log(path: str) -> Optional[str]:
+    """None = el archivo no evidencia una ejecución del paso (no marcar OK)."""
+    body = _stage_log_body(_read_log_sample(path))
+    if not body.strip():
+        return None
+    low = body.lower()
+    if any(marker in low for marker in _STAGE_SUCCESS_MARKERS):
         return "success"
-    if "error" in low or "traceback" in low or "return_code=" in low:
-        if re.search(r"return_code=(?!0)\d+", low):
-            return "failed"
+    if re.search(r"return_code=(?!0)\d+", low) or "traceback" in low:
+        return "failed"
     if "finaliz" in low and "error" not in low[-500:]:
         return "success"
-    return "success"
+    return None
 
 
 def _stable_id(*parts: str) -> str:
@@ -106,12 +137,14 @@ def _scan_log_file(
     month: str,
     stage_num: int,
     label: str,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
+    status = _infer_status_from_log(path)
+    if not status:
+        return None
     name = os.path.basename(path)
     created = _parse_ts_from_name(name)
     if not created:
         created = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc).isoformat()
-    status = _infer_status_from_log(path)
     eid = _stable_id(str(year), month, str(stage_num), path)
     return {
         "id": eid,
@@ -128,6 +161,11 @@ def _scan_log_file(
         "pid": None,
         "return_code": 0 if status == "success" else 1,
     }
+
+
+def _maybe_append(entries: list[dict[str, Any]], entry: dict[str, Any] | None) -> None:
+    if entry:
+        entries.append(entry)
 
 
 def scan_month_logs(year: int, month: str) -> list[dict[str, Any]]:
@@ -152,14 +190,15 @@ def scan_month_logs(year: int, month: str) -> list[dict[str, Any]]:
                 if not stages:
                     stages = [0]
                 for sn in stages:
-                    entries.append(
+                    _maybe_append(
+                        entries,
                         _scan_log_file(
                             path=path,
                             year=year,
                             month=month,
                             stage_num=sn,
                             label=f"cierre ({name})",
-                        )
+                        ),
                     )
             continue
 
@@ -176,14 +215,15 @@ def scan_month_logs(year: int, month: str) -> list[dict[str, Any]]:
             if bn.endswith((".log", ".txt", ".jsonl")):
                 if _parse_ts_from_name(os.path.basename(path)) or sn in (1, 5, 7):
                     seen_paths.add(path)
-                    entries.append(
+                    _maybe_append(
+                        entries,
                         _scan_log_file(
                             path=path,
                             year=year,
                             month=month,
                             stage_num=sn,
                             label=os.path.basename(path),
-                        )
+                        ),
                     )
 
         # Logs “rolling” sin fecha en nombre (un registro por archivo/mes)
@@ -191,14 +231,15 @@ def scan_month_logs(year: int, month: str) -> list[dict[str, Any]]:
             path = os.path.join(base, rolling)
             if os.path.isfile(path) and path not in seen_paths:
                 seen_paths.add(path)
-                entries.append(
+                _maybe_append(
+                    entries,
                     _scan_log_file(
                         path=path,
                         year=year,
                         month=month,
                         stage_num=sn,
                         label=rolling,
-                    )
+                    ),
                 )
 
     # Paso 10: reportes de revisión
@@ -206,27 +247,38 @@ def scan_month_logs(year: int, month: str) -> list[dict[str, Any]]:
     for path in glob.glob(os.path.join(reporte_dir, "reporte_revision_*.txt")):
         if os.path.isfile(path) and path not in seen_paths:
             seen_paths.add(path)
-            entries.append(
+            _maybe_append(
+                entries,
                 _scan_log_file(
                     path=path,
                     year=year,
                     month=month,
                     stage_num=10,
                     label=os.path.basename(path),
-                )
+                ),
             )
     rev_xlsx = os.path.join(month_dir, "revision_carpetas.xlsx")
     if os.path.isfile(rev_xlsx) and rev_xlsx not in seen_paths:
         seen_paths.add(rev_xlsx)
-        ent = _scan_log_file(
-            path=rev_xlsx,
-            year=year,
-            month=month,
-            stage_num=10,
-            label="revision_carpetas.xlsx",
+        created = datetime.fromtimestamp(os.path.getmtime(rev_xlsx), tz=timezone.utc).isoformat()
+        entries.append(
+            {
+                "id": _stable_id(str(year), month, "10", rev_xlsx),
+                "source": "filesystem",
+                "stage_num": 10,
+                "status": "success",
+                "year": year,
+                "month": month,
+                "type": "revision_carpetas.xlsx",
+                "created_at": created,
+                "finished_at": created,
+                "log_path": rev_xlsx,
+                "label": "Paso 10 — revision_carpetas.xlsx",
+                "pid": None,
+                "return_code": 0,
+                "artifact_path": rev_xlsx,
+            }
         )
-        ent["artifact_path"] = rev_xlsx
-        entries.append(ent)
 
     return entries
 

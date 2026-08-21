@@ -10,6 +10,7 @@ const labels: Record<string, string> = {
   "/docentes": "Docentes",
   "/operacion": "Operación",
   "/avance": "Avance",
+  "/informe": "Informes del mes",
   "/runs": "Runs",
   "/settings": "Ajustes",
 };

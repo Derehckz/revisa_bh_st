@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import subprocess
 import sys
@@ -176,6 +177,20 @@ def list_stage_options(stage_num: int, year: int, month: str) -> dict:
     if stage_num == 0:
         opts = list_step0_options(year, month)
         base.update(opts)
+        try:
+            base["arrastre_preview"] = preview_step0_arrastre(int(year), str(month))
+        except Exception as exc:
+            base["arrastre_preview"] = {
+                "year": int(year),
+                "month": str(month).strip().capitalize(),
+                "lookback": [],
+                "previous_closed": False,
+                "count": 0,
+                "total_monto": 0,
+                "rows": [],
+                "message": f"No se pudo calcular el arrastre de provisionados: {exc}",
+                "error": str(exc),
+            }
     else:
         base["month_dir"] = _month_path(year, month)
         schema = stage_commands.params_schema_for_stage(stage_num)
@@ -197,6 +212,164 @@ def excel_avance(year: int, month: str, *, row_limit: int = 500) -> dict:
     return stage_operations.excel_avance(year, month, row_limit=row_limit)
 
 
+def final_report(year: int, month: str) -> dict:
+    import final_report as final_report_module
+
+    return final_report_module.period_final_report(year, month)
+
+
+def pagos_report(year: int, month: str) -> dict:
+    import pagos_report as pagos_report_module
+
+    return pagos_report_module.period_pagos_report(year, month)
+
+
+def backfill_periods(
+    *,
+    year: int,
+    month: str | None = None,
+    run_migrations: bool = True,
+) -> dict:
+    """Importa Excel→DB + snapshots informe/pagos para uno o todos los meses del año."""
+    import period_snapshots
+    from db import db_maintenance
+
+    migration = db_maintenance.run_alembic_upgrade() if run_migrations else None
+    months: list[str] = []
+    if month:
+        months = [str(month).strip().capitalize()]
+    else:
+        year_dir = os.path.join(config.RAIZ, str(year))
+        if os.path.isdir(year_dir):
+            for name in sorted(os.listdir(year_dir)):
+                sol = os.path.join(year_dir, name, "Solicitud.xlsx")
+                if os.path.isfile(sol):
+                    months.append(name)
+
+    results: list[dict] = []
+    for m in months:
+        try:
+            verify = period_verify(
+                year,
+                m,
+                run_migrations=False,
+                run_consistency=False,
+            )
+            snaps = verify.get("snapshots") or {}
+            has_data = bool(
+                (snaps.get("informe") or {}).get("ok")
+                or (snaps.get("pagos") or {}).get("ok")
+                or (verify.get("import_stats") or {}).get("boletas_upserted")
+                or (verify.get("projection") or {}).get("projected")
+            )
+            # Compare Excel/DB puede tener diferencias sin impedir lectura histórica.
+            results.append(
+                {
+                    "month": m,
+                    "ok": bool(has_data or verify.get("ok")),
+                    "aligned": bool(verify.get("ok")),
+                    "verify": verify,
+                }
+            )
+        except Exception as exc:
+            # Aún intentar snapshots si el período existe
+            try:
+                snaps = period_snapshots.sync_snapshots_for_period(year, m, prefer_freeze=True)
+                has_snap = bool(
+                    (snaps.get("informe") or {}).get("ok")
+                    or (snaps.get("pagos") or {}).get("ok")
+                )
+            except Exception as snap_exc:
+                snaps = {"error": str(snap_exc)}
+                has_snap = False
+            results.append(
+                {
+                    "month": m,
+                    "ok": has_snap,
+                    "aligned": False,
+                    "error": str(exc),
+                    "snapshots": snaps,
+                }
+            )
+
+    ok_count = sum(1 for r in results if r.get("ok"))
+    return {
+        "ok": ok_count == len(results) and len(results) > 0,
+        "year": year,
+        "months": months,
+        "ok_count": ok_count,
+        "total": len(results),
+        "migration": migration,
+        "results": results,
+    }
+
+
+def monthly_checklist(year: int, month: str) -> dict:
+    import monthly_checklist as mc
+
+    return mc.monthly_checklist(year, month)
+
+
+def close_period(year: int, month: str, *, operator: str | None = None, force: bool = False) -> dict:
+    import period_close
+
+    return period_close.close_period(year, month, operator=operator, force=force)
+
+
+def reopen_period(year: int, month: str, *, operator: str | None = None) -> dict:
+    import period_close
+
+    return period_close.reopen_period(year, month, operator=operator)
+
+
+def mark_contabilidad(
+    year: int,
+    month: str,
+    *,
+    status: str,
+    operator: str | None = None,
+    notes: str | None = None,
+) -> dict:
+    import contabilidad_validation
+
+    return contabilidad_validation.mark_contabilidad(
+        year, month, status=status, operator=operator, notes=notes
+    )
+
+
+def list_audit_events(*, year: int | None = None, month: str | None = None, limit: int = 100) -> dict:
+    from db import audit
+
+    return {"events": audit.list_events(year=year, month=month, limit=limit)}
+
+
+def create_db_backup(*, operator: str | None = None) -> dict:
+    from db import db_maintenance
+
+    result = db_maintenance.create_postgres_backup()
+    from db import audit
+
+    audit.record_event(
+        action="db.backup",
+        operator=operator,
+        entity="postgres",
+        detail={"path": result.get("path"), "size_bytes": result.get("size_bytes")},
+    )
+    return result
+
+
+def list_db_backups() -> dict:
+    from db import db_maintenance
+
+    return db_maintenance.list_postgres_backups()
+
+
+def validate_maestro_file(path: str) -> dict:
+    import maestro_validation
+
+    return maestro_validation.validate_maestro_path(path)
+
+
 def period_sync_status(year: int, month: str, *, refresh: bool = False) -> dict:
     """E5/E11: estado de sincronización Excel↔PostgreSQL, con refresco opcional."""
     if refresh:
@@ -206,6 +379,116 @@ def period_sync_status(year: int, month: str, *, refresh: bool = False) -> dict:
     import sync_status
 
     return sync_status.period_sync_status(year, month)
+
+
+def db_migrate() -> dict:
+    """Aplica migraciones Alembic pendientes."""
+    from db import db_maintenance
+
+    return db_maintenance.run_alembic_upgrade()
+
+
+def db_consistency_check(*, limit: int = 20) -> dict:
+    """Chequeo global de integridad del dominio."""
+    from db import db_maintenance
+
+    return db_maintenance.consistency_check(limit=limit)
+
+
+def server_restart(*, port: int = 8000) -> dict:
+    """Reinicia el servidor BH (Windows, misma máquina)."""
+    import server_restart as server_restart_mod
+
+    return server_restart_mod.restart_server(port=port)
+
+
+def period_verify(
+    year: int,
+    month: str,
+    *,
+    run_migrations: bool = True,
+    run_consistency: bool = True,
+    consistency_limit: int = 20,
+) -> dict:
+    """
+    Verificación web de período:
+    - migraciones DB (opcional)
+    - importa snapshot Excel->DB
+    - reproyecta estado canónico
+    - compara Excel vs DB
+    - métricas del período y consistencia global (opcional)
+    """
+    import pandas as pd
+    from db import compare_excel_db
+    from db import db_maintenance
+    from db import import_excel_snapshot
+    from db.period_projector import project_dataframe
+
+    migration: dict[str, Any] | None = None
+    if run_migrations:
+        migration = db_maintenance.run_alembic_upgrade()
+
+    month_dir = _month_path(year, month)
+    solicitud = os.path.join(month_dir, "Solicitud.xlsx")
+    if not os.path.isfile(solicitud):
+        raise FileNotFoundError(f"No existe {solicitud}")
+
+    sheet = import_excel_snapshot.detect_solicitud_sheet(solicitud)
+    import_stats = import_excel_snapshot.run_import(
+        path=solicitud,
+        sheet_solicitud=sheet,
+        sheet_resumen="Resumen Boletas",
+        anio=year,
+        mes_nombre=month,
+    )
+    df = pd.read_excel(solicitud, sheet_name=sheet, engine="openpyxl")
+    mes_num = config.MESES_ES.index(month) + 1 if month in config.MESES_ES else 0
+    projection = {"projected": 0, "failed": 0}
+    if mes_num > 0 and df is not None:
+        projection = project_dataframe(
+            year=year,
+            month_num=mes_num,
+            month_name=month,
+            df=df,
+        )
+    dedupe = db_maintenance.dedupe_period_boletas(year=year, month=month)
+    compare_stats = compare_excel_db.compare_period(year=year, month=month, sheet=sheet)
+    period_stats = db_maintenance.period_check(year, month)
+    consistency: dict[str, Any] | None = None
+    if run_consistency:
+        consistency = db_maintenance.consistency_check(limit=consistency_limit)
+
+    aligned = compare_stats.get("differences", 0) == 0
+    snapshots: dict[str, Any] | None = None
+    try:
+        import period_snapshots
+
+        snapshots = period_snapshots.sync_snapshots_for_period(year, month, prefer_freeze=True)
+    except Exception as exc:
+        snapshots = {"ok": False, "error": str(exc)}
+
+    return {
+        "ok": aligned and (consistency is None or consistency.get("ok", True)),
+        "year": year,
+        "month": month,
+        "solicitud": solicitud,
+        "sheet": sheet,
+        "migration": migration,
+        "import_stats": import_stats,
+        "projection": projection,
+        "dedupe": dedupe,
+        "compare": compare_stats,
+        "period_check": period_stats,
+        "consistency": consistency,
+        "snapshots": snapshots,
+    }
+
+
+def export_period_snapshot_excel(year: int, month: str) -> tuple[str, bytes]:
+    """Exporta Solicitud.xlsx detallada desde PostgreSQL."""
+    import solicitud_export
+
+    return solicitud_export.export_solicitud_excel(year, month)
 
 
 def _jobs_for_period(year: int | str, month: str, limit: int = 80) -> list[dict]:
@@ -273,7 +556,15 @@ def outbox_reopen_failed(*, limit: int = 200) -> dict:
     return {"reopened": n}
 
 
+def preview_step0_arrastre(year: int, month: str) -> dict:
+    import arrastre_provisionados
+
+    return arrastre_provisionados.preview_arrastre_provisionados(str(month), int(year))
+
+
 def list_step0_options(year: int, month: str) -> dict:
+    import period_bootstrap
+
     month_dir = _month_path(year, month)
     if not os.path.isdir(month_dir):
         return {
@@ -288,7 +579,9 @@ def list_step0_options(year: int, month: str) -> dict:
         [
             f
             for f in os.listdir(month_dir)
-            if f.lower().endswith(".xlsx") and os.path.isfile(os.path.join(month_dir, f))
+            if f.lower().endswith(".xlsx")
+            and os.path.isfile(os.path.join(month_dir, f))
+            and not period_bootstrap._is_excluded_maestro_name(f)
         ]
     )
     root_files = sorted(
@@ -344,6 +637,24 @@ def _run_job(job_id: str, cmd: list[str], cwd: str, log_path: str, env: dict[str
                 job["return_code"] = return_code
                 job["finished_at"] = finished
                 _persist_job(job)
+                try:
+                    from db import audit
+
+                    audit.record_event(
+                        action=f"job.{job['status']}",
+                        operator=job.get("operator") or job.get("triggered_by"),
+                        period_year=int(job["year"]) if job.get("year") is not None else None,
+                        period_month=job.get("month"),
+                        entity="job",
+                        entity_id=job_id,
+                        detail={
+                            "stage_num": job.get("stage_num"),
+                            "return_code": return_code,
+                            "type": job.get("type"),
+                        },
+                    )
+                except Exception:
+                    pass
         _release_job_lock(job_id)
         log_file.write(f"\n[{finished}] END return_code={return_code}\n")
 
@@ -369,6 +680,24 @@ def start_stage_job(stage_num: int, params: dict[str, Any]) -> dict:
     month = params.get("month")
     if year is None or not month:
         raise ValueError("params debe incluir year y month")
+
+    operator = (params.pop("operator", None) or params.pop("triggered_by", None) or None)
+    if isinstance(operator, str):
+        operator = operator.strip() or None
+
+    if stage_num == 0:
+        maestro_name = str(params.get("maestro_file") or "").strip()
+        if maestro_name:
+            import config as _cfg
+            import maestro_validation
+
+            maestro_path = os.path.join(
+                _cfg.RAIZ, str(year), str(month).strip().capitalize(), os.path.basename(maestro_name)
+            )
+            validation = maestro_validation.validate_maestro_path(maestro_path)
+            if not validation.get("ok"):
+                errs = "; ".join(validation.get("errors") or ["Maestro inválido"])
+                raise ValueError(f"Maestro no válido: {errs}")
 
     stage_commands.check_prerequisites(stage_num, year, month)
 
@@ -418,18 +747,34 @@ def start_stage_job(stage_num: int, params: dict[str, Any]) -> dict:
             "status": "running",
             "year": int(year) if str(year).isdigit() else year,
             "month": month,
-            "params": {k: v for k, v in merged.items() if k not in ("ruta_bd",)},
+            "params": {k: v for k, v in merged.items() if k not in ("ruta_bd", "operator", "triggered_by")},
             "cmd": cmd,
             "created_at": datetime.now(UTC).isoformat(),
             "log_path": log_path,
             "pid": None,
             "return_code": None,
             "finished_at": None,
+            "operator": operator,
+            "triggered_by": operator,
             # Campos legacy paso 0 (compatibilidad front)
             "maestro_file": merged.get("maestro_file", ""),
             "bd_file": merged.get("bd_file", ""),
             "output_file": merged.get("output_file") or "Solicitud.xlsx",
         }
+        try:
+            from db import audit
+
+            audit.record_event(
+                action="job.started",
+                operator=operator,
+                period_year=int(year) if str(year).isdigit() else None,
+                period_month=str(month),
+                entity="job",
+                entity_id=job_id,
+                detail={"stage_num": stage_num, "type": job["type"]},
+            )
+        except Exception:
+            pass
 
         out_path = stage_commands.primary_output_for_stage(stage_num, year, month, merged)
         if out_path:

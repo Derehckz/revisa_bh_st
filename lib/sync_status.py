@@ -1,16 +1,17 @@
-"""Estado de sincronización Excel (Solicitud.xlsx) ↔ PostgreSQL para un período.
+"""Estado operativo del período para la UI.
 
-Comparación liviana pensada para mostrarse como indicador en la UI de Operación:
-no reemplaza una auditoría completa, solo compara conteos totales para detectar
-desalineaciones evidentes entre el Excel de trabajo y lo que quedó persistido en BD.
+Con ``BH_READ_FROM_DB=1`` (modo actual) solo valida que el período exista en BD.
+El modo legacy compara conteos Excel ↔ PostgreSQL para rollout en sombra.
 
 Contrato de salida: ``{"status": "ok" | "degraded" | "unknown", "message": str,
-"details": dict}``. Cualquier error (BD no disponible, Excel bloqueado, etc.) se
-traduce en ``status="unknown"`` para no romper la UI ni bloquear operación.
+"details": dict}``. Cualquier error se traduce en ``status="unknown"`` para no
+romper la UI ni bloquear operación.
 """
 from __future__ import annotations
 
 from typing import Any
+
+from settings import get_bool_setting
 
 STATUS_OK = "ok"
 STATUS_DEGRADED = "degraded"
@@ -26,11 +27,13 @@ def _significant_diff(excel_total: int, db_total: int) -> bool:
 
 
 def period_sync_status(year: int | str, month: str) -> dict[str, Any]:
-    """Compara total de filas en Solicitud.xlsx vs. total de boletas en PostgreSQL.
+    """Evalúa si el período está listo para operar en la UI.
 
-    No lanza excepciones: cualquier problema (BD caída, período sin sincronizar,
-    Excel abierto/corrupto, etc.) se refleja como ``status="unknown"``.
+    No lanza excepciones: cualquier problema se refleja como ``status="unknown"``.
     """
+    if get_bool_setting("BH_READ_FROM_DB", True):
+        return _period_sync_status_db_first(year, month)
+
     try:
         import stage_operations
 
@@ -82,6 +85,38 @@ def period_sync_status(year: int | str, month: str) -> dict[str, Any]:
     return {
         "status": STATUS_OK,
         "message": "Excel y PostgreSQL están alineados en total de filas/boletas.",
+        "details": details,
+    }
+
+
+def _period_sync_status_db_first(year: int | str, month: str) -> dict[str, Any]:
+    try:
+        db_total = _db_boleta_count(year, month)
+    except Exception as exc:
+        return {
+            "status": STATUS_UNKNOWN,
+            "message": f"No se pudo consultar el período: {exc}",
+            "details": {},
+        }
+
+    if db_total is None:
+        return {
+            "status": STATUS_UNKNOWN,
+            "message": "Período sin solicitudes cargadas. Empieza por el paso 0.",
+            "details": {"db_total_boletas": 0},
+        }
+
+    details = {"db_total_boletas": db_total}
+    if db_total == 0:
+        return {
+            "status": STATUS_UNKNOWN,
+            "message": "Período creado pero sin solicitudes. Genera la solicitud en el paso 0.",
+            "details": details,
+        }
+
+    return {
+        "status": STATUS_OK,
+        "message": f"Período operativo con {db_total} solicitud(es).",
         "details": details,
     }
 

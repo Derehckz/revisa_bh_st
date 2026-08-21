@@ -15,6 +15,7 @@ from outlook_utils import conectar_outlook_app
 import bh_excel_workbook
 from stages.context import Stage7Context
 from stages.stage7 import mail as mail_ops
+from stages.streamlined import confirm_unless_streamlined
 
 RAIZ = config.RAIZ
 LOG_FOLDER_NAME = "logs_envios_pagos"
@@ -52,13 +53,19 @@ class Stage7Service:
         os.makedirs(ruta_logs, exist_ok=True)
         utils.configurar_logging(os.path.join(ruta_logs, "envio_pagos.log"))
 
-        if not ui.confirm_yes_no("Continuar", "¿Continuar con la hoja Pagos?", default=False):
+        if not confirm_unless_streamlined(
+            ui,
+            ctx.streamlined,
+            "Continuar",
+            "¿Continuar con la hoja Pagos?",
+            default=False,
+        ):
             return {"ok": False, "cancelled": True}
 
         fecha_pago = (ctx.fecha_pago or "").strip()
         if not fecha_pago:
-            if utils.is_non_interactive():
-                ui.log("Modo no interactivo: use --fecha-pago.", level="error")
+            if utils.is_non_interactive() or ctx.streamlined:
+                ui.log("Falta fecha de pago (dd/mm/aaaa).", level="error")
                 return {"ok": False}
             fecha_pago = ui.prompt_text("Fecha de pago", "Fecha de pago (dd/mm/aaaa)", default="")
 
@@ -85,7 +92,9 @@ class Stage7Service:
             ui.log("Sin permiso de envío: solo vista previa.", level="warning")
             outlook = None
         else:
-            if not ui.confirm_yes_no(
+            if not confirm_unless_streamlined(
+                ui,
+                ctx.streamlined,
                 "Enviar",
                 "¿Enviar correos de pago con los montos normalizados?",
                 default=False,
@@ -112,6 +121,23 @@ class Stage7Service:
 
         if ctx.allow_send and _guardar_pagos(ruta_excel, df):
             ui.log("Hoja Pagos actualizada.", level="success")
+
+        try:
+            from stages.stage7.payment_projection import project_pagos_dataframe
+            import period_snapshots
+
+            proj = project_pagos_dataframe(year=año, month=mes, df=df)
+            payload = period_snapshots.build_pagos_payload_from_df(
+                año, mes, df, source="stage7"
+            )
+            period_snapshots.save_pagos_snapshot(año, mes, payload, mark_frozen=False)
+            ui.log(
+                f"Pagos proyectados a BD: {proj.get('updated', 0)} actualizada(s); "
+                f"snapshot {payload.get('total_rows', 0)} fila(s).",
+                level="info",
+            )
+        except Exception as exc:
+            ui.log(f"No se pudo proyectar pagos a BD: {exc}", level="warning")
 
         ui.emit("session.summary", {"ok": True, "stats": stats})
         return {"ok": True, "stats": stats}

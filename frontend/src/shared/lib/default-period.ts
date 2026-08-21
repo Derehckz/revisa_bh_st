@@ -1,26 +1,19 @@
 import type { Period } from "@/shared/api/types";
-import { isPeriodClosed } from "@/shared/lib/period-operation-guard";
 
 export function periodKey(year: number, month: string) {
   return `${year}-${month}`;
 }
 
-function sortPeriodsNewestFirst(a: Period, b: Period) {
+export function sortPeriodsNewestFirst(a: Period, b: Period) {
   if (a.year !== b.year) return b.year - a.year;
   return b.month_num - a.month_num;
 }
 
-/**
- * Período por defecto en Operación: el mes abierto más reciente
- * (en curso). Si no hay abiertos, el más reciente de la lista.
- */
+/** Siempre el mes más reciente (cronológico), abierto o cerrado. */
 export function defaultOperationPeriodKey(periods: Period[]): string | null {
   if (!periods.length) return null;
-
-  const open = periods.filter((p) => !isPeriodClosed(p));
-  const pool = open.length > 0 ? open : [...periods];
-  pool.sort(sortPeriodsNewestFirst);
-  const pick = pool[0];
+  const sorted = [...periods].sort(sortPeriodsNewestFirst);
+  const pick = sorted[0];
   return periodKey(pick.year, pick.month_name);
 }
 
@@ -38,4 +31,14 @@ export function resolveOperationPeriod(
   const fallbackKey = defaultOperationPeriodKey(periods);
   if (!fallbackKey) return periods[0];
   return periods.find((p) => periodKey(p.year, p.month_name) === fallbackKey) ?? periods[0];
+}
+
+export function yearsFromPeriods(periods: Period[]): number[] {
+  return [...new Set(periods.map((p) => p.year))].sort((a, b) => b - a);
+}
+
+export function monthsForYear(periods: Period[], year: number): Period[] {
+  return periods
+    .filter((p) => p.year === year)
+    .sort((a, b) => b.month_num - a.month_num);
 }

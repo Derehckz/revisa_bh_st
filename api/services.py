@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 
 from fastapi import HTTPException
-from sqlalchemy import String, func, or_, select
+from sqlalchemy import String, func, or_, select, update
 from sqlalchemy.orm import aliased
 
 from db.models import Boleta, BoletaXmlData, Docente, EnvioEmail, Periodo, PipelineRun, PipelineStageRun
@@ -33,7 +33,7 @@ def list_periods(session) -> list[dict]:
     raiz = os.path.abspath(get_setting("BH_RAIZ", _REPO_ROOT))
     ensure_periods_from_disk(raiz)
     rows = session.execute(select(Periodo).order_by(Periodo.anio.desc(), Periodo.mes_num.desc())).scalars().all()
-    return [{"id": p.id, "year": p.anio, "month_num": p.mes_num, "month_name": p.mes_nombre, "status": p.estado} for p in rows]
+    return [{"id": p.id, "year": p.anio, "month_num": p.mes_num, "month_name": p.mes_nombre, "status": p.estado, "closed_at": p.closed_at.isoformat() if getattr(p, "closed_at", None) else None, "closed_by": getattr(p, "closed_by", None), "informe_frozen_at": p.informe_frozen_at.isoformat() if getattr(p, "informe_frozen_at", None) else None} for p in rows]
 
 
 def get_period_summary(session, year: int, month: str) -> dict:
@@ -477,18 +477,25 @@ def get_year_stats(session, year: int) -> dict:
         raise HTTPException(status_code=404, detail=f"No hay periodos para el año {year}")
     items = []
     total_boletas = total_xml = total_emails = 0
+    total_monto = 0.0
     for p in periodos:
         boletas = session.execute(select(func.count(Boleta.id)).where(Boleta.periodo_id == p.id)).scalar_one()
         xml = session.execute(
             select(func.count(BoletaXmlData.id)).join(Boleta, BoletaXmlData.boleta_id == Boleta.id).where(Boleta.periodo_id == p.id)
         ).scalar_one()
         emails = session.execute(select(func.count(EnvioEmail.id)).where(EnvioEmail.periodo_id == p.id)).scalar_one()
+        monto = session.execute(
+            select(func.coalesce(func.sum(Boleta.monto_bruto), 0)).where(Boleta.periodo_id == p.id)
+        ).scalar_one()
+        monto_f = float(monto or 0)
         total_boletas += boletas
         total_xml += xml
         total_emails += emails
+        total_monto += monto_f
         items.append({
             "period_id": p.id, "month_num": p.mes_num, "month_name": p.mes_nombre,
             "boletas": boletas, "xml": xml, "emails": emails,
+            "monto_total": monto_f,
             "xml_coverage_pct": round((xml / boletas * 100), 2) if boletas else 0.0,
             "email_coverage_pct": round((emails / boletas * 100), 2) if boletas else 0.0,
         })
@@ -498,6 +505,7 @@ def get_year_stats(session, year: int) -> dict:
             "boletas": total_boletas,
             "xml": total_xml,
             "emails": total_emails,
+            "monto_total": total_monto,
             "xml_coverage_pct": round((total_xml / total_boletas * 100), 2) if total_boletas else 0.0,
             "email_coverage_pct": round((total_emails / total_boletas * 100), 2) if total_boletas else 0.0,
         },
@@ -541,6 +549,7 @@ def list_docentes(session, q: str | None, limit: int, offset: int) -> dict:
                 "sede": d.sede,
                 "email_personal": d.email_personal,
                 "email_dp": d.email_dp,
+                "activo": d.activo,
                 "boletas_count": int(boletas_count or 0),
                 "monto_total": float(monto_total or 0),
             }
@@ -609,6 +618,7 @@ def get_docente_profile(session, docente_id: int, limit: int) -> dict:
             "sede": docente.sede,
             "email_personal": docente.email_personal,
             "email_dp": docente.email_dp,
+            "activo": docente.activo,
             "boletas_count": boletas_count,
             "monto_total": monto_total,
         },
@@ -680,8 +690,9 @@ def list_docente_boletas(
     if docente is None:
         raise HTTPException(status_code=404, detail=f"Docente {docente_id} no encontrado")
     query = (
-        select(Boleta, Periodo)
+        select(Boleta, Periodo, BoletaXmlData)
         .join(Periodo, Boleta.periodo_id == Periodo.id, isouter=True)
+        .outerjoin(BoletaXmlData, BoletaXmlData.boleta_id == Boleta.id)
         .where(or_(Boleta.docente_id == docente.id, _normalized_rut_expr(Boleta.emplid) == _normalized_rut_expr(docente.rut)))
     )
     total_query = select(func.count(Boleta.id)).where(
@@ -730,8 +741,13 @@ def list_docente_boletas(
                 "glosa": b.glosa,
                 "monto_bruto": float(b.monto_bruto) if b.monto_bruto is not None else None,
                 "archivo_xml": b.descripcion,
+                "has_xml_file": bool(
+                    (xml and (xml.numero_boleta or xml.descripcion_linea or xml.total_honorarios))
+                    or (b.descripcion and str(b.descripcion).strip())
+                )
+                and (str(b.estado_recepcion or "").upper() in {"RECIBIDO", "RECIBIDO CON ERROR"}),
             }
-            for b, p in rows
+            for b, p, xml in rows
         ],
     }
 
@@ -763,6 +779,7 @@ def get_docente_metrics(session, docente_id: int, year: int | None, month: str |
             "sede": docente.sede,
             "email_personal": docente.email_personal,
             "email_dp": docente.email_dp,
+            "activo": docente.activo,
             "boletas_count": total,
             "monto_total": monto_total,
         },
@@ -823,6 +840,7 @@ def list_docente_emails(
         "sede": docente.sede,
         "email_personal": docente.email_personal,
         "email_dp": docente.email_dp,
+        "activo": docente.activo,
         "boletas_count": 0,
         "monto_total": 0.0,
     }
@@ -844,4 +862,189 @@ def list_docente_emails(
             }
             for e in rows
         ],
+    }
+
+
+def _docente_payload_with_stats(session, docente: Docente) -> dict:
+    boletas_count = session.execute(
+        select(func.count(Boleta.id)).where(
+            or_(Boleta.docente_id == docente.id, _normalized_rut_expr(Boleta.emplid) == _normalized_rut_expr(docente.rut))
+        )
+    ).scalar_one()
+    monto_total = session.execute(
+        select(func.coalesce(func.sum(Boleta.monto_bruto), 0)).where(
+            or_(Boleta.docente_id == docente.id, _normalized_rut_expr(Boleta.emplid) == _normalized_rut_expr(docente.rut))
+        )
+    ).scalar_one()
+    return {
+        "id": docente.id,
+        "rut": docente.rut,
+        "nombre_completo": docente.nombre_completo,
+        "sede": docente.sede,
+        "email_personal": docente.email_personal,
+        "email_dp": docente.email_dp,
+        "activo": docente.activo,
+        "boletas_count": int(boletas_count or 0),
+        "monto_total": float(monto_total or 0),
+    }
+
+
+def create_docente(session, payload: dict) -> dict:
+    rut = str(payload.get("rut") or "").strip()
+    nombre = str(payload.get("nombre_completo") or "").strip()
+    if not rut or not nombre:
+        raise HTTPException(status_code=422, detail="rut y nombre_completo son obligatorios")
+    exists = session.execute(select(Docente).where(func.lower(Docente.rut) == rut.lower())).scalar_one_or_none()
+    if exists is not None:
+        raise HTTPException(status_code=409, detail=f"Ya existe docente con RUT {rut}")
+    row = Docente(
+        rut=rut,
+        rut_sin_dv=(str(payload.get("rut_sin_dv") or "").strip() or None),
+        nombre_completo=nombre,
+        email_personal=(str(payload.get("email_personal") or "").strip() or None),
+        email_dp=(str(payload.get("email_dp") or "").strip() or None),
+        telefono=(str(payload.get("telefono") or "").strip() or None),
+        direccion=(str(payload.get("direccion") or "").strip() or None),
+        sede=(str(payload.get("sede") or "").strip() or None),
+        activo=str(payload.get("activo") or "true"),
+    )
+    session.add(row)
+    session.flush()
+    _apply_dp_from_sede(session, row)
+    session.commit()
+    session.refresh(row)
+    _sync_docente_excel(row)
+    return {"ok": True, "docente": _docente_payload_with_stats(session, row)}
+
+
+def update_docente(session, docente_id: int, payload: dict) -> dict:
+    row = session.execute(select(Docente).where(Docente.id == docente_id)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Docente {docente_id} no encontrado")
+    rut = str(payload.get("rut") or row.rut).strip()
+    nombre = str(payload.get("nombre_completo") or row.nombre_completo).strip()
+    if not rut or not nombre:
+        raise HTTPException(status_code=422, detail="rut y nombre_completo son obligatorios")
+    conflict = session.execute(
+        select(Docente).where(func.lower(Docente.rut) == rut.lower(), Docente.id != docente_id)
+    ).scalar_one_or_none()
+    if conflict is not None:
+        raise HTTPException(status_code=409, detail=f"Ya existe docente con RUT {rut}")
+    row.rut = rut
+    row.rut_sin_dv = (str(payload.get("rut_sin_dv") or "").strip() or None)
+    row.nombre_completo = nombre
+    row.email_personal = (str(payload.get("email_personal") or "").strip() or None)
+    row.email_dp = (str(payload.get("email_dp") or "").strip() or None)
+    row.telefono = (str(payload.get("telefono") or "").strip() or None)
+    row.direccion = (str(payload.get("direccion") or "").strip() or None)
+    row.sede = (str(payload.get("sede") or "").strip() or None)
+    row.activo = str(payload.get("activo") or row.activo or "true")
+    _apply_dp_from_sede(session, row)
+    session.commit()
+    session.refresh(row)
+    _sync_docente_excel(row)
+    return {"ok": True, "docente": _docente_payload_with_stats(session, row)}
+
+
+def disable_docente(session, docente_id: int) -> dict:
+    row = session.execute(select(Docente).where(Docente.id == docente_id)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Docente {docente_id} no encontrado")
+    row.activo = "false"
+    session.commit()
+    session.refresh(row)
+    return {"ok": True, "docente": _docente_payload_with_stats(session, row)}
+
+
+def delete_docente(session, docente_id: int) -> dict:
+    row = session.execute(select(Docente).where(Docente.id == docente_id)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Docente {docente_id} no encontrado")
+    payload = _docente_payload_with_stats(session, row)
+    session.execute(update(Boleta).where(Boleta.docente_id == docente_id).values(docente_id=None))
+    session.execute(update(EnvioEmail).where(EnvioEmail.docente_id == docente_id).values(docente_id=None))
+    session.delete(row)
+    session.commit()
+    return {"ok": True, "docente": payload}
+
+
+def _apply_dp_from_sede(session, row: Docente) -> None:
+    import director_catalog
+
+    if not row.sede:
+        return
+    sede = director_catalog.canonical_sede(row.sede) or row.sede
+    row.sede = sede
+    auto = director_catalog.email_dp_for_sede(sede, session=session)
+    if auto:
+        row.email_dp = auto
+
+
+def _sync_docente_excel(row: Docente) -> None:
+    try:
+        import director_catalog
+
+        director_catalog.patch_bd_docentes_row(
+            {
+                "RUT": row.rut,
+                "NOMBRE_COMPLETO": row.nombre_completo,
+                "Correo_Personal": row.email_personal or "",
+                "Telefono_Personal": row.telefono or "",
+                "Direccion": row.direccion or "",
+                "SEDE": row.sede or "",
+                "Email_DP": row.email_dp or "",
+            }
+        )
+    except Exception:
+        pass
+
+
+def list_directores(session) -> dict:
+    import director_catalog
+
+    return {"data": director_catalog.list_directores(session)}
+
+
+def upsert_director(session, payload: dict, *, director_id: int | None = None) -> dict:
+    import director_catalog
+
+    try:
+        director = director_catalog.upsert_director(
+            session,
+            director_id=director_id,
+            nombre=payload.get("nombre"),
+            email=str(payload.get("email") or ""),
+            sedes=list(payload.get("sedes") or []),
+            activo=str(payload.get("activo") or "true"),
+            propagate=True,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    session.commit()
+    return {"ok": True, "director": director}
+
+
+def delete_director(session, director_id: int) -> dict:
+    import director_catalog
+
+    try:
+        director_catalog.delete_director(session, director_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    session.commit()
+    return {"ok": True}
+
+
+def seed_directores(session) -> dict:
+    import director_catalog
+
+    stats = director_catalog.seed_from_excel(session)
+    session.commit()
+    return {
+        "ok": True,
+        "created": int(stats.get("directores") or 0),
+        "sedes": int(stats.get("sedes") or 0),
+        "mapping": int(stats.get("mapping") or 0),
     }

@@ -41,6 +41,9 @@ const DocentesPage = lazyPage(() =>
 const OperacionPage = lazyPage(() =>
   import("@/features/operacion/page").then((m) => ({ default: m.OperacionPage }))
 );
+const InformePage = lazyPage(() =>
+  import("@/features/informe/page").then((m) => ({ default: m.InformePage }))
+);
 const RunsPage = lazyPage(() =>
   import("@/features/runs/page").then((m) => ({ default: m.RunsPage }))
 );
@@ -112,6 +115,7 @@ export const router = createBrowserRouter([
       { path: "docentes", element: withSuspense(<DocentesPage />) },
       { path: "operacion", element: withSuspense(<OperacionPage />), errorElement: <RouteError /> },
       { path: "avance", element: withSuspense(<AvancePage />), errorElement: <RouteError /> },
+      { path: "informe", element: withSuspense(<InformePage />), errorElement: <RouteError /> },
       { path: "runs", element: withSuspense(<RunsPage />) },
       { path: "settings", element: withSuspense(<SettingsPage />) },
     ],

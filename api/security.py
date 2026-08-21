@@ -53,6 +53,12 @@ def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
         )
 
 
+def get_operator_name(x_operator_name: str | None = Header(default=None)) -> str | None:
+    """Nombre del operador enviado por la UI (auditoría suave)."""
+    name = (x_operator_name or "").strip()
+    return name[:128] if name else None
+
+
 def get_api_keys() -> set[str]:
     keys: set[str] = set()
     primary = get_setting("BH_API_KEY", "").strip()

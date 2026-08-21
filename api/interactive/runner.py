@@ -1,6 +1,7 @@
 """Ejecuta etapas en hilo de fondo con adaptador web."""
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
@@ -18,11 +19,47 @@ from api.interactive import sessions
 _BRIDGED_STAGES: set[int] = set()
 
 
+def _snapshot_root_logging() -> tuple[int, list[logging.Handler]]:
+    root = logging.getLogger()
+    return root.level, list(root.handlers)
+
+
+def _restore_root_logging(level: int, handlers: list[logging.Handler]) -> None:
+    root = logging.getLogger()
+    current = list(root.handlers)
+    root.handlers.clear()
+    root.setLevel(level)
+    for handler in handlers:
+        root.addHandler(handler)
+    for handler in current:
+        if handler not in handlers:
+            try:
+                handler.close()
+            except Exception:
+                pass
+
+
 def _run_session(session_id: str, stage_num: int) -> None:
     try:
         session = sessions.get_live_session(session_id)
     except KeyError:
         return
+
+    log_level, log_handlers = _snapshot_root_logging()
+    try:
+        _run_session_body(session_id, stage_num, session)
+    finally:
+        _restore_root_logging(log_level, log_handlers)
+
+
+def _run_session_body(session_id: str, stage_num: int, session: dict) -> None:
+    # COM de Outlook exige CoInitialize en cada hilo del ThreadPool.
+    try:
+        import pythoncom
+
+        pythoncom.CoInitialize()
+    except Exception:
+        pass
 
     bus = session["bus"]
     events_path = sessions._events_path(session_id)
@@ -137,6 +174,12 @@ def _run_session(session_id: str, stage_num: int) -> None:
         ui.log(f"Error fatal: {exc}", level="error")
     finally:
         sessions.release_session_lock_if_held(session_id)
+        try:
+            import pythoncom
+
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
 
 
 def run_stage0_session(session_id: str) -> None:

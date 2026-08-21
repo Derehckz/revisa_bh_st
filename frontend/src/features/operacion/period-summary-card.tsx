@@ -22,9 +22,9 @@ export function PeriodSummaryCard({ kpis, outboxStats }: Props) {
       </CardHeader>
       <CardContent>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Filas Solicitud" value={kpis.solicitud_exists ? String(kpis.total_rows) : "—"} />
-          <Stat label="Recibidos" value={kpis.solicitud_exists ? String(kpis.recibidos) : "—"} />
-          <Stat label="No recibidos" value={kpis.solicitud_exists ? String(kpis.no_recibidos) : "—"} />
+          <Stat label="Solicitudes" value={(kpis.total_rows ?? 0) > 0 ? String(kpis.total_rows) : "—"} />
+          <Stat label="Recibidos" value={(kpis.total_rows ?? 0) > 0 ? String(kpis.recibidos) : "—"} />
+          <Stat label="No recibidos" value={(kpis.total_rows ?? 0) > 0 ? String(kpis.no_recibidos) : "—"} />
           <Stat label="XML en carpeta" value={String(kpis.xml_files_in_month)} />
           <Stat label="PDF en carpeta" value={String(kpis.pdf_files_in_month)} />
           <Stat label="Outbox pending" value={String(pending)} />
@@ -32,7 +32,7 @@ export function PeriodSummaryCard({ kpis, outboxStats }: Props) {
           <Stat label="Outbox failed" value={String(failed)} />
         </div>
         {kpis.read_error && (
-          <p className="mt-2 text-xs text-amber-800">No se pudo leer Solicitud.xlsx: {kpis.read_error}</p>
+          <p className="mt-2 text-xs text-amber-800">No se pudo cargar el resumen: {kpis.read_error}</p>
         )}
       </CardContent>
     </Card>

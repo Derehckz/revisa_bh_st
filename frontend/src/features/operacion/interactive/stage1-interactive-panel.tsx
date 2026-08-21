@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Mail, Play, Square } from "lucide-react";
+import { AlertTriangle, Loader2, Mail, Play, Square } from "lucide-react";
 import type { Period, Step0OptionsResponse } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -173,6 +173,15 @@ export function Stage1InteractivePanel({
   const logs = events.filter((e) => e.type === "log");
   const lastPreview = [...events].reverse().find((e) => e.type === "mail.preview");
   const summary = [...events].reverse().find((e) => e.type === "session.summary");
+  const analysisReady = [...events].reverse().find((e) => e.type === "analysis.ready");
+  const invalidEmails = Array.isArray(analysisReady?.payload?.invalid_emails)
+    ? (analysisReady.payload.invalid_emails as Array<{
+        name?: string;
+        emplid?: string;
+        email?: string;
+        fila?: number;
+      }>)
+    : [];
   const done = session?.status === "completed" || Boolean(summary);
   const running = isSessionRunning(session?.status);
   const sessionSend = Boolean(session) ? sessionSendEnabled : sendReal;
@@ -342,6 +351,27 @@ export function Stage1InteractivePanel({
         </CardContent>
       </Card>
 
+      {invalidEmails.length > 0 && (
+        <Card className="border-warning/40 bg-warning/10">
+          <CardHeader className="py-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <AlertTriangle className="h-4 w-4" />
+              {invalidEmails.length} fila(s) sin correo válido — no se envían
+            </CardTitle>
+            <p className="text-xs font-normal text-muted-foreground">
+              Están en BD-DOCENTES sin Correo_Personal. Completa el dato y regenera el paso 0.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            {invalidEmails.map((row, i) => (
+              <p key={`${row.emplid ?? ""}-${row.fila ?? i}`}>
+                {row.name || "—"} ({row.emplid || "sin RUT"}) — {row.email || "(vacío)"}
+              </p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {activeSessionId && (
         <ActiveSessionCard
           sessionId={activeSessionId}
@@ -353,7 +383,11 @@ export function Stage1InteractivePanel({
       {done && (
         <SessionDoneCard
           title="Paso 1 listo"
-          detail="Revisa el detalle si hace falta. Siguiente: bajar boletas del correo."
+          detail={
+            invalidEmails.length
+              ? `Enviados los que tenían correo. ${invalidEmails.length} sin correo válido no se enviaron: completa BD-DOCENTES y regenera el paso 0.`
+              : "Revisa el detalle si hace falta. Siguiente: bajar boletas del correo."
+          }
           nextLabel={onGoToNextStage ? "Ir al paso 2" : undefined}
           onNext={onGoToNextStage}
         />
@@ -373,7 +407,7 @@ export function Stage1InteractivePanel({
           <Card className="border-warning/30 bg-warning/10">
             <CardHeader className="py-3">
               <CardTitle className="text-sm">{pendingPrompt.title}</CardTitle>
-              <p className="text-xs text-muted-foreground">{pendingPrompt.message}</p>
+              <p className="whitespace-pre-wrap text-xs text-muted-foreground">{pendingPrompt.message}</p>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               <Button type="button" className="text-sm h-8 px-3" onClick={() => respond("accept")}>

@@ -16,11 +16,11 @@ const SHORT: Record<number, string> = {
   3: "Marcar recibidos",
   4: "Completar datos",
   5: "Correo recepción",
-  6: "Cruzar pagos",
-  7: "Correo pago",
+  6: "Informe final",
+  7: "Pagos / correo",
   8: "Clasificar",
   9: "Nómina",
-  10: "Cerrar mes",
+  10: "Revisar carpetas",
 };
 
 const STATUS_DOT: Record<StageUiStatus, string> = {
@@ -68,8 +68,11 @@ export function PipelineSidebar({ stages, overviewStages, activeStage, suggested
               <span className="mx-1 text-border">·</span>
               {label}
             </span>
-            {uiStatus === "OK" && !isActive && (
+            {uiStatus === "OK" && (
               <span className="text-2xs font-semibold text-success">OK</span>
+            )}
+            {uiStatus === "ERROR" && (
+              <span className="text-2xs font-semibold text-danger">Error</span>
             )}
           </button>
         );

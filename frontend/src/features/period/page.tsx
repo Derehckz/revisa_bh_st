@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppConfig } from "@/app/app-config";
 import { mapApiErrorMessage } from "@/shared/api/client";
 import { usePeriodInsights, usePeriodSummary, usePeriods } from "@/shared/api/queries";
+import { defaultOperationPeriodKey, periodKey, resolveOperationPeriod } from "@/shared/lib/default-period";
 import { toCurrency } from "@/shared/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { EmptyState } from "@/shared/ui/empty-state";
@@ -15,16 +16,17 @@ export function PeriodPage() {
   const { baseUrl, apiKey } = useAppConfig();
   const periods = usePeriods(baseUrl, apiKey);
   const [selectedPeriodKey, setSelectedPeriodKey] = useState("");
-  const selected =
-    periods.data?.find((p) => `${p.year}-${p.month_name}` === selectedPeriodKey) || periods.data?.[0];
+  const selected = resolveOperationPeriod(periods.data ?? [], selectedPeriodKey);
   const year = selected?.year;
   const month = selected?.month_name;
   const summary = usePeriodSummary(baseUrl, apiKey, year, month);
   const insights = usePeriodInsights(baseUrl, apiKey, year, month);
 
   useEffect(() => {
-    if (!selectedPeriodKey && periods.data?.length) {
-      setSelectedPeriodKey(`${periods.data[0].year}-${periods.data[0].month_name}`);
+    if (!periods.data?.length) return;
+    const exists = periods.data.some((p) => periodKey(p.year, p.month_name) === selectedPeriodKey);
+    if (!selectedPeriodKey || !exists) {
+      setSelectedPeriodKey(defaultOperationPeriodKey(periods.data) || "");
     }
   }, [periods.data, selectedPeriodKey]);
 

@@ -223,6 +223,11 @@ class Stage5Context:
     allow_send: bool = False
     supervised: bool = False
     supervision_mode: SupervisionMode = SupervisionMode.PER_MAIL
+    include_ok: bool = True
+    include_error: bool = True
+    include_reenvio: bool = True
+    include_recordatorio: bool = True
+    include_boleta_incorrecta: bool = True
 
     @classmethod
     def from_args(cls, args: Any) -> "Stage5Context":
@@ -241,6 +246,13 @@ class Stage5Context:
             force_resend=bool(getattr(args, "force_resend", False)),
             allow_send=allow_send,
             supervision_mode=mode,
+            include_ok=bool(getattr(args, "include_ok", True)),
+            include_error=bool(getattr(args, "include_error", True)),
+            include_reenvio=bool(getattr(args, "include_reenvio", True)),
+            include_recordatorio=bool(getattr(args, "include_recordatorio", getattr(args, "include_reenvio", True))),
+            include_boleta_incorrecta=bool(
+                getattr(args, "include_boleta_incorrecta", getattr(args, "include_reenvio", True))
+            ),
         )
 
     @classmethod
@@ -251,6 +263,15 @@ class Stage5Context:
             if mode_raw == "per_mail"
             else SupervisionMode.BATCH
         )
+
+        def _flag(name: str, default: bool = True) -> bool:
+            if name not in params:
+                return default
+            return bool(params.get(name))
+
+        reenvio_legacy = params.get("include_reenvio")
+        reenvio_default = True if reenvio_legacy is None else bool(reenvio_legacy)
+
         return cls(
             year=str(params.get("year")) if params.get("year") is not None else None,
             month=str(params.get("month") or ""),
@@ -258,6 +279,11 @@ class Stage5Context:
             allow_send=bool(params.get("send")),
             supervised=True,
             supervision_mode=mode,
+            include_ok=_flag("include_ok", True),
+            include_error=_flag("include_error", True),
+            include_reenvio=_flag("include_reenvio", True),
+            include_recordatorio=_flag("include_recordatorio", reenvio_default),
+            include_boleta_incorrecta=_flag("include_boleta_incorrecta", reenvio_default),
         )
 
 
@@ -270,6 +296,7 @@ class Stage7Context:
     allow_send: bool = False
     supervised: bool = False
     supervision_mode: SupervisionMode = SupervisionMode.PER_MAIL
+    streamlined: bool = False
 
     @classmethod
     def from_args(cls, args: Any) -> "Stage7Context":
@@ -289,10 +316,13 @@ class Stage7Context:
             force_resend=bool(getattr(args, "force_resend", False)),
             allow_send=allow_send,
             supervision_mode=mode,
+            streamlined=False,
         )
 
     @classmethod
     def from_api_params(cls, params: dict[str, Any]) -> "Stage7Context":
+        from stages.streamlined import param_streamlined
+
         mode_raw = str(params.get("supervision_mode") or "batch")
         mode = (
             SupervisionMode.PER_MAIL
@@ -308,6 +338,7 @@ class Stage7Context:
             allow_send=bool(params.get("send")),
             supervised=True,
             supervision_mode=mode,
+            streamlined=param_streamlined(params),
         )
 
 

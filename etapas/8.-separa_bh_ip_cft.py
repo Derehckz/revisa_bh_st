@@ -344,19 +344,18 @@ def main():
 
     mapping = None
     if args.map:
-        # cargar CSV simple: RUT,CAT
+        # cargar CSV simple: RUT,CAT (UTF-8 / cp1252 / etc.)
         try:
-            import csv
-            mapping = {}
-            with open(args.map, newline='', encoding='utf-8') as fh:
-                r = csv.reader(fh)
-                for row in r:
-                    if not row: continue
-                    rut = str(row[0]).strip()
-                    cat = str(row[1]).strip().upper() if len(row) > 1 else ''
-                    if cat in ('IP','CFT'):
-                        mapping[rut] = cat
-        except (OSError, csv.Error) as e:
+            from map_ip_cft import load_map_ip_cft
+
+            mapping = load_map_ip_cft(args.map)
+            if not mapping:
+                utils.print_error(
+                    "El CSV de mapeo no tiene filas IP/CFT válidas "
+                    "(¿elegiste Contabilidad_pagos en vez de map_ip_cft.csv?)."
+                )
+                return
+        except (OSError, ValueError, ImportError) as e:
             utils.print_error(f"No se pudo leer mapping CSV: {e}")
             return
 

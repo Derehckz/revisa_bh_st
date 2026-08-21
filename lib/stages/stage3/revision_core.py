@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import unicodedata
 import argparse
 import pandas as pd
 import xml.etree.ElementTree as ET
@@ -288,6 +289,10 @@ def comparar_datos(excel_fila, datos_xml):
     if monto_xml is None or abs(monto_excel - monto_xml) > 1:
         obs.append(f"totalHonorarios XML ({monto_xml}) distinto a CUS_TOT_HON Excel ({monto_excel})")
 
+    glosa_xml = datos_xml.get("descripcionLinea", "")
+    if glosa_xml and not glosas_coinciden(excel_fila.get("GLOSA", ""), glosa_xml):
+        obs.append("glosa distinta entre solicitud y XML")
+
     return obs
 
 def cargar_xmls_por_rut(ruta_carpeta):
@@ -348,12 +353,135 @@ def es_provisionado(texto):
     return any(p in texto for p in patrones)
 
 
+def normalizar_glosa(texto: object) -> str:
+    """Comparación estricta de glosa (ignora formato, no contenido)."""
+    s = str(texto or "").strip().lower()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    # Unifica separadores de formato (guiones, comas, puntos, etc.) para evitar
+    # falsos negativos por variaciones del SII: "IST2588-JULIO" vs "IST2588 - JULIO".
+    # No altera palabras/meses, por lo que JUNIO vs JULIO sigue detectándose.
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def normalizar_glosa_compacta(texto: object) -> str:
+    """
+    Glosa sin espacios ni año opcional al final.
+    Tolera: 'FDI CST2588' vs 'FDICST2588', 'IST 2588' vs 'IST2588', 'JULIO 2026' vs 'JULIO'.
+    """
+    compact = normalizar_glosa(texto).replace(" ", "")
+    return re.sub(r"20\d{2}$", "", compact)
+
+
+def _extraer_prefijo_institucional(glosa_compacta: str) -> tuple[str | None, str]:
+    for pref in ("ipst", "cftst"):
+        if glosa_compacta.startswith(pref):
+            return pref, glosa_compacta[len(pref):]
+    return None, glosa_compacta
+
+
+def clasificar_coincidencia_glosa(glosa_excel: object, glosa_xml: object) -> str:
+    """
+    exacta                 -> mismo contenido normalizado compacto
+    prefijo_omitido        -> coincide salvo IPST/CFTST faltante en uno
+    distinta               -> contenido diferente (p.ej. JUNIO vs JULIO)
+    """
+    g_excel = normalizar_glosa_compacta(glosa_excel)
+    g_xml = normalizar_glosa_compacta(glosa_xml)
+    if not g_xml:
+        return "exacta"
+    if g_excel == g_xml:
+        return "exacta"
+
+    pref_excel, body_excel = _extraer_prefijo_institucional(g_excel)
+    pref_xml, body_xml = _extraer_prefijo_institucional(g_xml)
+    # Tolera prefijo IPST/CFTST omitido en XML, pero NO cambiado (IPST vs CFTST).
+    if pref_excel and not pref_xml and body_excel == body_xml:
+        return "prefijo_omitido"
+    if pref_xml and not pref_excel and body_excel == body_xml:
+        return "prefijo_omitido"
+    return "distinta"
+
+
+def glosas_coinciden(glosa_excel: object, glosa_xml: object) -> bool:
+    return clasificar_coincidencia_glosa(glosa_excel, glosa_xml) != "distinta"
+
+
+def glosa_xml_de_fila(fila, ruta_carpeta: str | None = None) -> str:
+    """Obtiene la glosa del XML asignado (columna del paso 4 o lectura directa)."""
+    glosa_xml = str(fila.get("descripcionLinea_XML", "") or "").strip()
+    if glosa_xml:
+        return glosa_xml
+    archivo = str(fila.get("archivo_xml", "") or "").strip()
+    if not archivo or not ruta_carpeta:
+        return ""
+    datos = extraer_datos_xml(os.path.join(ruta_carpeta, archivo))
+    if "error" in datos:
+        return ""
+    return str(datos.get("descripcionLinea", "") or "").strip()
+
+
+def glosa_recibida_es_valida(fila, ruta_carpeta: str | None = None) -> bool:
+    glosa_xml = glosa_xml_de_fila(fila, ruta_carpeta)
+    if not glosa_xml:
+        return True
+    return glosas_coinciden(fila.get("GLOSA", ""), glosa_xml)
+
+
+def auditar_glosas_recibidas(df, ruta_carpeta: str, ui: InteractionPort) -> int:
+    """Revalida filas RECIBIDO: glosa distinta → RECIBIDO CON ERROR."""
+    corregidas = 0
+    for idx, fila in df.iterrows():
+        estado = str(fila.get("Estado_Recepcion", "") or "").strip().upper()
+        if estado != "RECIBIDO":
+            continue
+        glosa_xml = glosa_xml_de_fila(fila, ruta_carpeta)
+        if not glosa_xml:
+            continue
+        if glosas_coinciden(fila.get("GLOSA", ""), glosa_xml):
+            continue
+        glosa_pedida = str(fila.get("GLOSA", "") or "").strip()
+        df.at[idx, "Estado_Recepcion"] = "RECIBIDO CON ERROR"
+        df.at[idx, "Observaciones"] = (
+            "Glosa de la boleta no coincide con la solicitada "
+            f"(pedida: «{glosa_pedida}»; en boleta: «{glosa_xml}»)"
+        )
+        df.at[idx, "Observacion_Descartes"] = ""
+        corregidas += 1
+        logging.warning(
+            f"Fila {idx + 1}: glosa distinta; RECIBIDO → RECIBIDO CON ERROR "
+            f"(pedida={glosa_pedida!r}, xml={glosa_xml!r})"
+        )
+    if corregidas:
+        ui.log(
+            f"Auditoría de glosa: {corregidas} fila(s) pasaron a RECIBIDO CON ERROR "
+            "(la boleta no trae la glosa exacta pedida).",
+            level="warning",
+        )
+    return corregidas
+
+
 def _registrar_descarte(descartes: list[str], archivo: str, motivo: str) -> None:
     descartes.append(f"{archivo}: {motivo}")
 
 
 def _formatear_descartes(descartes: list[str]) -> str:
     return "; ".join(descartes)
+
+
+def _observacion_sin_match(descartes: list[str], fila) -> str:
+    from stages.docente_mensajes import observacion_principal_docente
+
+    return observacion_principal_docente(descartes, fila)
+
+
+def _formatear_descartes_docente(descartes: list[str], fila) -> str:
+    """Guarda en Excel un detalle legible (también sale en correo / Avance)."""
+    from stages.docente_mensajes import detalle_descartes_docente
+
+    return detalle_descartes_docente(descartes, fila).replace("\n", " ")
 
 
 def _ordenar_candidatos_xml_para_fila(
@@ -521,15 +649,15 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
                 )
                 continue
 
-            descripcion_xml = datos_xml.get('descripcionLinea', '').lower()
-            glosa_excel = str(fila.get('GLOSA', '')).lower()
+            descripcion_xml = datos_xml.get("descripcionLinea", "")
+            glosa_excel = str(fila.get("GLOSA", ""))
 
-            if es_provisionado(glosa_excel) != es_provisionado(descripcion_xml):
-                _registrar_descarte(
-                    descartes,
-                    archivo_xml,
-                    "glosa/provisión inconsistente entre solicitud y XML",
-                )
+            if not glosas_coinciden(glosa_excel, descripcion_xml):
+                if es_provisionado(glosa_excel) != es_provisionado(descripcion_xml):
+                    motivo_glosa = "glosa/provisión inconsistente entre solicitud y XML"
+                else:
+                    motivo_glosa = "glosa distinta entre solicitud y XML"
+                _registrar_descarte(descartes, archivo_xml, motivo_glosa)
                 continue
 
             datos_validos = datos_xml
@@ -573,12 +701,15 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
                     logging.warning(f"Fila {idx+1}: {obs_text}.")
                 else:
                     estado = "NO RECIBIDO"
-                    obs_text = "No se encontró PDF ni XML válido para el monto esperado"
+                    obs_text = _observacion_sin_match(descartes, fila)
                     logging.error(f"Fila {idx+1}: {obs_text}.")
 
             df.at[idx,'Estado_Recepcion'] = estado
             df.at[idx,'Observaciones'] = obs_text
-            df.at[idx,'Observacion_Descartes'] = _formatear_descartes(descartes)
+            # Detalle en lenguaje del docente (correo paso 5 + Avance)
+            df.at[idx,'Observacion_Descartes'] = (
+                _formatear_descartes_docente(descartes, fila) if descartes else ""
+            )
             df.at[idx,'archivo_xml'] = ''
             continue
 
@@ -600,6 +731,8 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
             df.at[idx,'Observaciones'] = '; '.join(obs)
             df.at[idx,'Observacion_Descartes'] = ''
             logging.warning(f"Fila {idx+1}: Observaciones: {'; '.join(obs)}")
+
+    glosa_corregidas = auditar_glosas_recibidas(df, ruta_carpeta, ui)
 
     df.drop(columns='__provisionado__', inplace=True)
     revis_fin = int(
@@ -626,6 +759,7 @@ def procesar_filas(df, ruta_carpeta, ui: InteractionPort) -> tuple[pd.DataFrame,
         "revis_ini": int(revis_ini),
         "revis_fin": int(revis_fin),
         "total": int(total),
+        "glosa_corregidas": int(glosa_corregidas),
     }
     ui.emit("analysis.complete", stats)
     return df, stats

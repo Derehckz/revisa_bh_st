@@ -1,11 +1,15 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { apiGet } from "@/shared/api/client";
 import type {
   BoletaDetailResponse,
+  DocenteItem,
   DocenteEmailsResponse,
   DocenteMetricsResponse,
   DocenteListResponse,
   DocenteProfileResponse,
+  DocenteUpsertPayload,
+  DirectorListResponse,
+  DirectorPrograma,
+  DirectorUpsertPayload,
   HealthResponse,
   JobArtifact,
   ExecutionHistoryResponse,
@@ -15,9 +19,26 @@ import type {
   Period,
   PeriodOverviewResponse,
   ExcelAvanceResponse,
+  FinalReportResponse,
+  PagosReportResponse,
+  PeriodBackfillResponse,
+  MonthlyChecklistResponse,
+  MaestroValidationResponse,
+  AuditEvent,
+  DbBackupItem,
   InboxGapsResponse,
   PeriodInsightsResponse,
   PeriodSummary,
+  PeriodSetupResponse,
+  MissingMonthsResponse,
+  CreatePeriodResponse,
+  DbConsistencyResponse,
+  DbMigrateResponse,
+  PeriodUploadResponse,
+  PagosImportResult,
+  PagosPreviewResponse,
+  PeriodVerifyResponse,
+  ServerRestartResponse,
   RunStagesResponse,
   RunsResponse,
   StagesListResponse,
@@ -25,6 +46,7 @@ import type {
   SyncStatus,
   YearStatsResponse,
 } from "@/shared/api/types";
+import { apiGet, apiPost, apiRequest, apiUpload } from "@/shared/api/client";
 
 /** Invalida datos de período/operación para que la UI se actualice sin F5. */
 export function invalidatePeriodViews(queryClient: QueryClient) {
@@ -39,6 +61,8 @@ export function invalidatePeriodViews(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: ["period-insights"] });
   void queryClient.invalidateQueries({ queryKey: ["outbox-stats"] });
   void queryClient.invalidateQueries({ queryKey: ["outbox-rows"] });
+  void queryClient.invalidateQueries({ queryKey: ["period-setup"] });
+  void queryClient.invalidateQueries({ queryKey: ["periods-missing"] });
 }
 
 export function usePeriods(baseUrl: string, apiKey: string) {
@@ -231,6 +255,117 @@ export function useDocenteEmails(
   });
 }
 
+export function useCreateDocente(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: DocenteUpsertPayload) =>
+      apiPost<{ ok: boolean; docente: DocenteItem }>(baseUrl, apiKey, "/docentes", payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["docentes"] });
+    },
+  });
+}
+
+export function useUpdateDocente(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ docenteId, payload }: { docenteId: number; payload: DocenteUpsertPayload }) =>
+      apiRequest<{ ok: boolean; docente: DocenteItem }>(baseUrl, apiKey, `/docentes/${docenteId}`, "PUT", payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["docentes"] });
+      void qc.invalidateQueries({ queryKey: ["docente-profile"] });
+    },
+  });
+}
+
+export function useDisableDocente(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (docenteId: number) =>
+      apiPost<{ ok: boolean; docente: DocenteItem }>(baseUrl, apiKey, `/docentes/${docenteId}/disable`, {}),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["docentes"] });
+      void qc.invalidateQueries({ queryKey: ["docente-profile"] });
+    },
+  });
+}
+
+export function useDeleteDocente(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (docenteId: number) =>
+      apiRequest<{ ok: boolean; docente: DocenteItem }>(baseUrl, apiKey, `/docentes/${docenteId}`, "DELETE"),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["docentes"] });
+      void qc.invalidateQueries({ queryKey: ["docente-profile"] });
+    },
+  });
+}
+
+export function useDirectores(baseUrl: string, apiKey: string) {
+  return useQuery({
+    queryKey: ["directores", baseUrl, apiKey],
+    queryFn: () => apiGet<DirectorListResponse>(baseUrl, apiKey, "/directores"),
+  });
+}
+
+export function useCreateDirector(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: DirectorUpsertPayload) =>
+      apiPost<{ ok: boolean; director: DirectorPrograma }>(baseUrl, apiKey, "/directores", payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["directores"] });
+      void qc.invalidateQueries({ queryKey: ["docentes"] });
+    },
+  });
+}
+
+export function useUpdateDirector(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ directorId, payload }: { directorId: number; payload: DirectorUpsertPayload }) =>
+      apiRequest<{ ok: boolean; director: DirectorPrograma }>(
+        baseUrl,
+        apiKey,
+        `/directores/${directorId}`,
+        "PUT",
+        payload
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["directores"] });
+      void qc.invalidateQueries({ queryKey: ["docentes"] });
+    },
+  });
+}
+
+export function useDeleteDirector(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (directorId: number) =>
+      apiRequest<{ ok: boolean }>(baseUrl, apiKey, `/directores/${directorId}`, "DELETE"),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["directores"] });
+    },
+  });
+}
+
+export function useSeedDirectores(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiPost<{ ok: boolean; created: number; sedes: number; mapping: number }>(
+        baseUrl,
+        apiKey,
+        "/directores/seed-from-excel",
+        {}
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["directores"] });
+    },
+  });
+}
+
 export function usePipelineStages(baseUrl: string, apiKey: string) {
   return useQuery({
     queryKey: ["pipeline-stages", baseUrl, apiKey],
@@ -284,13 +419,153 @@ export function useExcelAvance(baseUrl: string, apiKey: string, year?: number, m
   return useQuery({
     queryKey: ["excel-avance", baseUrl, apiKey, year, month],
     enabled: Boolean(year && month),
-    refetchInterval: 15_000,
+    staleTime: 0,
+    refetchInterval: 10_000,
+    refetchOnMount: "always",
     queryFn: () =>
       apiGet<ExcelAvanceResponse>(
         baseUrl,
         apiKey,
         `/operations/period/excel-avance?year=${year}&month=${encodeURIComponent(month || "")}`
       ),
+  });
+}
+
+export function useFinalReport(baseUrl: string, apiKey: string, year?: number, month?: string) {
+  return useQuery({
+    queryKey: ["final-report", baseUrl, apiKey, year, month],
+    enabled: Boolean(year && month),
+    queryFn: () =>
+      apiGet<FinalReportResponse>(
+        baseUrl,
+        apiKey,
+        `/operations/period/final-report?year=${year}&month=${encodeURIComponent(month || "")}`
+      ),
+  });
+}
+
+export function usePagosReport(baseUrl: string, apiKey: string, year?: number, month?: string) {
+  return useQuery({
+    queryKey: ["pagos-report", baseUrl, apiKey, year, month],
+    enabled: Boolean(year && month),
+    queryFn: () =>
+      apiGet<PagosReportResponse>(
+        baseUrl,
+        apiKey,
+        `/operations/period/pagos-report?year=${year}&month=${encodeURIComponent(month || "")}`
+      ),
+  });
+}
+
+export function useMonthlyChecklist(baseUrl: string, apiKey: string, year?: number, month?: string) {
+  return useQuery({
+    queryKey: ["monthly-checklist", baseUrl, apiKey, year, month],
+    enabled: Boolean(year && month),
+    refetchInterval: 15_000,
+    queryFn: () =>
+      apiGet<MonthlyChecklistResponse>(
+        baseUrl,
+        apiKey,
+        `/operations/period/monthly-checklist?year=${year}&month=${encodeURIComponent(month || "")}`
+      ),
+  });
+}
+
+export function useValidateMaestro(
+  baseUrl: string,
+  apiKey: string,
+  year?: number,
+  month?: string,
+  filename?: string
+) {
+  return useQuery({
+    queryKey: ["validate-maestro", baseUrl, apiKey, year, month, filename],
+    enabled: Boolean(year && month && filename),
+    queryFn: () => {
+      const qs = new URLSearchParams({
+        year: String(year),
+        month: month || "",
+        filename: filename || "",
+      });
+      return apiGet<MaestroValidationResponse>(
+        baseUrl,
+        apiKey,
+        `/operations/period/validate-maestro?${qs.toString()}`
+      );
+    },
+  });
+}
+
+export function useClosePeriod(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { year: number; month: string; force?: boolean }) =>
+      apiPost(baseUrl, apiKey, "/operations/period/close", vars),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["monthly-checklist"] });
+      void qc.invalidateQueries({ queryKey: ["periods"] });
+      void qc.invalidateQueries({ queryKey: ["final-report"] });
+      void qc.invalidateQueries({ queryKey: ["period-overview"] });
+    },
+  });
+}
+
+export function useReopenPeriod(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { year: number; month: string }) =>
+      apiPost(baseUrl, apiKey, "/operations/period/reopen", vars),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["monthly-checklist"] });
+      void qc.invalidateQueries({ queryKey: ["periods"] });
+      void qc.invalidateQueries({ queryKey: ["final-report"] });
+      void qc.invalidateQueries({ queryKey: ["period-overview"] });
+    },
+  });
+}
+
+export function useMarkContabilidad(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      year: number;
+      month: string;
+      status: "ok" | "con_observaciones" | "pendiente";
+      notes?: string;
+    }) => apiPost(baseUrl, apiKey, "/operations/period/contabilidad-validate", vars),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["monthly-checklist"] });
+      void qc.invalidateQueries({ queryKey: ["period-overview"] });
+    },
+  });
+}
+
+export function useDbBackup(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<{ ok: boolean; message: string; path?: string }>(baseUrl, apiKey, "/operations/db/backup"),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["db-backups"] }),
+  });
+}
+
+export function useDbBackups(baseUrl: string, apiKey: string) {
+  return useQuery({
+    queryKey: ["db-backups", baseUrl, apiKey],
+    enabled: Boolean(apiKey),
+    queryFn: () => apiGet<{ backups_dir: string; backups: DbBackupItem[] }>(baseUrl, apiKey, "/operations/db/backups"),
+  });
+}
+
+export function useAuditEvents(baseUrl: string, apiKey: string, year?: number, month?: string) {
+  return useQuery({
+    queryKey: ["audit-events", baseUrl, apiKey, year, month],
+    enabled: Boolean(apiKey),
+    queryFn: () => {
+      const qs = new URLSearchParams({ limit: "50" });
+      if (year) qs.set("year", String(year));
+      if (month) qs.set("month", month);
+      return apiGet<{ events: AuditEvent[] }>(baseUrl, apiKey, `/audit/events?${qs.toString()}`);
+    },
   });
 }
 
@@ -332,6 +607,82 @@ export function usePeriodSyncRefresh(baseUrl: string, apiKey: string) {
       void qc.invalidateQueries({ queryKey: ["period-overview", baseUrl, apiKey, vars.year, vars.month] });
       void qc.invalidateQueries({ queryKey: ["summary", baseUrl, apiKey, vars.year, vars.month] });
     },
+  });
+}
+
+export function usePeriodVerify(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      year,
+      month,
+      runMigrations = true,
+      runConsistency = true,
+    }: {
+      year: number;
+      month: string;
+      runMigrations?: boolean;
+      runConsistency?: boolean;
+    }) =>
+      apiPost<PeriodVerifyResponse>(baseUrl, apiKey, "/operations/period/verify", {
+        year,
+        month,
+        run_migrations: runMigrations,
+        run_consistency: runConsistency,
+      }),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["period-overview", baseUrl, apiKey, vars.year, vars.month] });
+      void qc.invalidateQueries({ queryKey: ["excel-avance", baseUrl, apiKey, vars.year, vars.month] });
+      void qc.invalidateQueries({ queryKey: ["summary", baseUrl, apiKey, vars.year, vars.month] });
+      void qc.invalidateQueries({ queryKey: ["final-report", baseUrl, apiKey, vars.year, vars.month] });
+      void qc.invalidateQueries({ queryKey: ["pagos-report", baseUrl, apiKey, vars.year, vars.month] });
+    },
+  });
+}
+
+export function usePeriodBackfill(baseUrl: string, apiKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      year,
+      month,
+      runMigrations = true,
+    }: {
+      year: number;
+      month?: string;
+      runMigrations?: boolean;
+    }) =>
+      apiPost<PeriodBackfillResponse>(baseUrl, apiKey, "/operations/period/backfill", {
+        year,
+        month: month || null,
+        run_migrations: runMigrations,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["periods", baseUrl, apiKey] });
+      void qc.invalidateQueries({ queryKey: ["excel-avance", baseUrl, apiKey] });
+      void qc.invalidateQueries({ queryKey: ["final-report", baseUrl, apiKey] });
+      void qc.invalidateQueries({ queryKey: ["pagos-report", baseUrl, apiKey] });
+    },
+  });
+}
+
+export function useDbMigrate(baseUrl: string, apiKey: string) {
+  return useMutation({
+    mutationFn: () => apiPost<DbMigrateResponse>(baseUrl, apiKey, "/operations/db/migrate", {}),
+  });
+}
+
+export function useDbConsistencyCheck(baseUrl: string, apiKey: string) {
+  return useMutation<DbConsistencyResponse, Error, number>({
+    mutationFn: (limit) =>
+      apiPost<DbConsistencyResponse>(baseUrl, apiKey, "/operations/db/consistency-check", { limit }),
+  });
+}
+
+export function useServerRestart(baseUrl: string, apiKey: string) {
+  return useMutation<ServerRestartResponse, Error, number | undefined>({
+    mutationFn: (port = 8000) =>
+      apiPost<ServerRestartResponse>(baseUrl, apiKey, "/operations/server/restart", { port }),
   });
 }
 
@@ -410,5 +761,90 @@ export function useExecutionHistory(
         `/operations/history?year=${year}&from_month=${encodeURIComponent(fromMonth)}&to_month=${encodeURIComponent(toMonth)}&limit=${limit}`
       ),
     staleTime: 60_000,
+  });
+}
+
+export function usePeriodSetup(baseUrl: string, apiKey: string, year?: number, month?: string) {
+  return useQuery({
+    queryKey: ["period-setup", baseUrl, apiKey, year, month],
+    enabled: Boolean(year && month),
+    queryFn: () =>
+      apiGet<PeriodSetupResponse>(
+        baseUrl,
+        apiKey,
+        `/operations/period/setup?year=${year}&month=${encodeURIComponent(month!)}`
+      ),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useMissingMonths(baseUrl: string, apiKey: string, year: number, enabled = true) {
+  return useQuery({
+    queryKey: ["periods-missing", baseUrl, apiKey, year],
+    enabled: Boolean(enabled && year),
+    queryFn: () =>
+      apiGet<MissingMonthsResponse>(baseUrl, apiKey, `/operations/periods/missing?year=${year}`),
+  });
+}
+
+export function useCreatePeriod(baseUrl: string, apiKey: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { year: number; month_name: string }) =>
+      apiPost<CreatePeriodResponse>(baseUrl, apiKey, "/operations/periods", body),
+    onSuccess: () => {
+      invalidatePeriodViews(queryClient);
+    },
+  });
+}
+
+export function usePeriodUpload(baseUrl: string, apiKey: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: {
+      year: number;
+      month: string;
+      kind: "maestro" | "bd" | "adjunto" | "pagos";
+      file: File;
+    }) => {
+      const form = new FormData();
+      form.append("year", String(args.year));
+      form.append("month", args.month);
+      form.append("kind", args.kind);
+      form.append("file", args.file);
+      return apiUpload<PeriodUploadResponse>(baseUrl, apiKey, "/operations/period/upload", form);
+    },
+    onSuccess: () => {
+      invalidatePeriodViews(queryClient);
+    },
+  });
+}
+
+export function useStage7ImportPagos(baseUrl: string, apiKey: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { year: number; month: string; paste?: string; file?: File }) => {
+      const form = new FormData();
+      form.append("year", String(args.year));
+      form.append("month", args.month);
+      if (args.paste?.trim()) form.append("paste", args.paste.trim());
+      if (args.file) form.append("file", args.file);
+      return apiUpload<PagosImportResult & Partial<PeriodUploadResponse>>(
+        baseUrl,
+        apiKey,
+        "/operations/stages/7/import-pagos",
+        form
+      );
+    },
+    onSuccess: () => {
+      invalidatePeriodViews(queryClient);
+    },
+  });
+}
+
+export function useStage7PreviewPagos(baseUrl: string, apiKey: string) {
+  return useMutation({
+    mutationFn: (body: { year: number; month: string; fecha_pago: string; force_resend?: boolean }) =>
+      apiPost<PagosPreviewResponse>(baseUrl, apiKey, "/operations/stages/7/preview-pagos", body),
   });
 }

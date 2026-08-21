@@ -10,6 +10,7 @@ import pandas as pd
 
 import config
 import utils
+from db.period_projector import project_dataframe
 from interaction.exceptions import SessionCancelled
 from interaction.port import InteractionPort
 from interaction.types import SupervisionMode
@@ -115,6 +116,7 @@ class Stage5Service:
         except ValueError as e:
             ui.log(str(e), level="error")
             return {"ok": False}
+        mes_num = config.MESES_ES.index(mes) + 1 if mes in config.MESES_ES else 0
 
         ruta_mes = os.path.join(RAIZ, año, mes)
         ruta_excel = os.path.join(ruta_mes, "Solicitud.xlsx")
@@ -156,6 +158,16 @@ class Stage5Service:
         if "Observacion_Descartes" not in df.columns:
             df["Observacion_Descartes"] = ""
 
+        from stages.recepcion_sync import reconcile_correo_recepcion_markers
+
+        reconciled = reconcile_correo_recepcion_markers(df, año=año, mes=mes)
+        if reconciled["cleared_markers"]:
+            ui.log(
+                f"Se limpiaron {reconciled['cleared_markers']} marca(s) de recepción "
+                "desactualizadas (p. ej. observación previa y ahora RECIBIDO).",
+                level="info",
+            )
+
         sent_from_logs = self._sent_keys_from_logs(ruta_logs, año, mes)
         restored_count = self._apply_log_sent_markers(df, año=año, mes=mes, sent_keys=sent_from_logs)
         if restored_count > 0:
@@ -166,27 +178,74 @@ class Stage5Service:
 
         mask = df.apply(lambda row: mail_ops.clasificar_fila_recepcion(row) is not None, axis=1)
         df_filtrado = df[mask]
-        n_ok = int(
-            df_filtrado.apply(lambda r: mail_ops.clasificar_fila_recepcion(r) == "ok", axis=1).sum()
+
+        allowed: list[str] = []
+        if ctx.include_ok:
+            allowed.append("ok")
+        if ctx.include_error:
+            allowed.append("error")
+        if ctx.include_recordatorio:
+            allowed.append("recordatorio")
+        if ctx.include_boleta_incorrecta:
+            allowed.append("boleta_incorrecta")
+        if not allowed:
+            ui.log(
+                "No hay grupos seleccionados (confirmaciones / errores / recordatorios / boletas incorrectas).",
+                level="warning",
+            )
+            return {"ok": False, "cancelled": True}
+
+        aud_mask = df_filtrado.apply(
+            lambda r: mail_ops.fila_recepcion_permitida(
+                r,
+                include_ok=ctx.include_ok,
+                include_error=ctx.include_error,
+                include_recordatorio=ctx.include_recordatorio,
+                include_boleta_incorrecta=ctx.include_boleta_incorrecta,
+            ),
+            axis=1,
         )
-        n_problema = int(len(df_filtrado) - n_ok)
+        df_filtrado = df_filtrado[aud_mask]
+
+        n_ok = int(
+            df_filtrado.apply(lambda r: mail_ops.clasificar_audiencia_recepcion(r) == "ok", axis=1).sum()
+        )
+        n_error = int(
+            df_filtrado.apply(
+                lambda r: mail_ops.clasificar_audiencia_recepcion(r) == "error", axis=1
+            ).sum()
+        )
+        n_recordatorio = int(
+            df_filtrado.apply(
+                lambda r: mail_ops.clasificar_reenvio_tipo(r) == "recordatorio", axis=1
+            ).sum()
+        )
+        n_boleta_incorrecta = int(
+            df_filtrado.apply(
+                lambda r: mail_ops.clasificar_reenvio_tipo(r) == "boleta_incorrecta", axis=1
+            ).sum()
+        )
         if df_filtrado.empty:
             ui.log(
-                "No hay filas para correo de recepción "
-                "(RECIBIDO, RECIBIDO CON ERROR, o NO RECIBIDO con descartes).",
+                "No hay filas para los grupos seleccionados "
+                "(confirmación OK, errores, recordatorios o boletas incorrectas).",
                 level="warning",
             )
             return {"ok": True, "stats": {}}
 
-        df_pendientes = df_filtrado[~df_filtrado["Correo_Recepcion_Enviado"].apply(_is_sent_marker)]
+        if ctx.force_resend:
+            df_pendientes = df_filtrado
+        else:
+            df_pendientes = df_filtrado[~df_filtrado.apply(mail_ops.correo_recepcion_cubierto, axis=1)]
         if df_pendientes.empty:
             ui.log("No hay correos de recepción pendientes; todo ya fue enviado.", level="warning")
             return {"ok": True, "stats": {}}
 
         ui.log(
             f"Pendientes: {len(df_pendientes)} "
-            f"(confirmación OK + observación/reenvío). "
-            f"En lote elegible: OK={n_ok}, con problema={n_problema}.",
+            f"(OK={n_ok}, error={n_error}, recordatorio={n_recordatorio}, "
+            f"boleta_incorrecta={n_boleta_incorrecta}; "
+            f"grupos={','.join(allowed)}).",
             level="info",
         )
 
@@ -196,7 +255,27 @@ class Stage5Service:
                 "count": len(df_pendientes),
                 "count_ok": int(
                     df_pendientes.apply(
-                        lambda r: mail_ops.clasificar_fila_recepcion(r) == "ok", axis=1
+                        lambda r: mail_ops.clasificar_audiencia_recepcion(r) == "ok", axis=1
+                    ).sum()
+                ),
+                "count_error": int(
+                    df_pendientes.apply(
+                        lambda r: mail_ops.clasificar_audiencia_recepcion(r) == "error", axis=1
+                    ).sum()
+                ),
+                "count_reenvio": int(
+                    df_pendientes.apply(
+                        lambda r: mail_ops.clasificar_audiencia_recepcion(r) == "reenvio", axis=1
+                    ).sum()
+                ),
+                "count_recordatorio": int(
+                    df_pendientes.apply(
+                        lambda r: mail_ops.clasificar_reenvio_tipo(r) == "recordatorio", axis=1
+                    ).sum()
+                ),
+                "count_boleta_incorrecta": int(
+                    df_pendientes.apply(
+                        lambda r: mail_ops.clasificar_reenvio_tipo(r) == "boleta_incorrecta", axis=1
                     ).sum()
                 ),
                 "count_problema": int(
@@ -204,6 +283,11 @@ class Stage5Service:
                         lambda r: mail_ops.clasificar_fila_recepcion(r) == "problema", axis=1
                     ).sum()
                 ),
+                "include_ok": ctx.include_ok,
+                "include_error": ctx.include_error,
+                "include_reenvio": ctx.include_reenvio,
+                "include_recordatorio": ctx.include_recordatorio,
+                "include_boleta_incorrecta": ctx.include_boleta_incorrecta,
                 "modo_prueba": modo_prueba,
                 "allow_send": ctx.allow_send,
             },
@@ -235,6 +319,18 @@ class Stage5Service:
             else:
                 ui.log("No se pudo guardar Excel.", level="error")
                 return {"ok": False}
+        if mes_num > 0:
+            proj = project_dataframe(
+                year=int(año),
+                month_num=mes_num,
+                month_name=mes,
+                df=df,
+            )
+            ui.log(
+                f"DB projector: {proj.get('projected', 0)} fila(s) sincronizadas, "
+                f"{proj.get('failed', 0)} con fallo.",
+                level="info",
+            )
         rows = [
             ("Pendientes procesados", str(len(df_pendientes))),
             ("Enviados (total)", str(stats.get("sent", 0))),

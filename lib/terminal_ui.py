@@ -39,35 +39,47 @@ def is_non_interactive() -> bool:
     return _NON_INTERACTIVE
 
 
+def _safe_print(renderable: Any) -> None:
+    """Imprime en consola sin tumbar jobs API/hilos si stdout no admite el write."""
+    try:
+        console.print(renderable)
+    except (OSError, ValueError, UnicodeEncodeError) as e:
+        # Errno 22 / Invalid handle: típico bajo uvicorn + hilos en Windows.
+        try:
+            sys.__stderr__.write(f"[bh-console] {e}: {renderable!s}\n")
+        except Exception:
+            pass
+
+
 def print_header(title: str, subtitle: str | None = None) -> None:
     contenido = f"[bold white]{title}[/bold white]"
     if subtitle:
         contenido += f"\n[dim]{subtitle}[/dim]"
-    console.print(Panel.fit(contenido, border_style="cyan", padding=(1, 2)))
+    _safe_print(Panel.fit(contenido, border_style="cyan", padding=(1, 2)))
 
 
 def print_step(step: int, total: int, message: str) -> None:
-    console.print(f"\n[bold yellow][{step}/{total}] {message}[/bold yellow]")
+    _safe_print(f"\n[bold yellow][{step}/{total}] {message}[/bold yellow]")
 
 
 def print_info(message: str) -> None:
-    console.print(f"[cyan]ℹ️ {message}[/cyan]")
+    _safe_print(f"[cyan]ℹ️ {message}[/cyan]")
 
 
 def print_success(message: str) -> None:
-    console.print(f"[green]✅ {message}[/green]")
+    _safe_print(f"[green]✅ {message}[/green]")
 
 
 def print_warning(message: str) -> None:
-    console.print(f"[yellow]⚠️ {message}[/yellow]")
+    _safe_print(f"[yellow]⚠️ {message}[/yellow]")
 
 
 def print_error(message: str) -> None:
-    console.print(f"[red]❌ {message}[/red]")
+    _safe_print(f"[red]❌ {message}[/red]")
 
 
 def print_section(title: str) -> None:
-    console.print(Panel.fit(f"[bold cyan]{title}[/bold cyan]", border_style="blue"))
+    _safe_print(Panel.fit(f"[bold cyan]{title}[/bold cyan]", border_style="blue"))
 
 
 def prompt_required(prompt_text: str, default: str = "") -> str:
@@ -106,15 +118,15 @@ def prompt_optional(prompt_text: str, default: str = "") -> str:
 
 
 def print_progress_status(message: str) -> None:
-    console.print(f"[bold blue]⏳ {message}[/bold blue]")
+    _safe_print(f"[bold blue]⏳ {message}[/bold blue]")
 
 
 def print_separator(char: str = "─", width: int = 80) -> None:
-    console.print(char * width)
+    _safe_print(char * width)
 
 
 def print_blank() -> None:
-    console.print()
+    _safe_print()
 
 
 def print_table(title: str, rows: list[tuple[str, str]]) -> None:
@@ -123,15 +135,15 @@ def print_table(title: str, rows: list[tuple[str, str]]) -> None:
     tabla.add_column("Valor", style="white")
     for clave, valor in rows:
         tabla.add_row(clave, str(valor))
-    console.print(tabla)
+    _safe_print(tabla)
 
 
 def print_list(title: str, items: list[str]) -> None:
     if not items:
         return
-    console.print(f"[bold cyan]{title}[/bold cyan]")
+    _safe_print(f"[bold cyan]{title}[/bold cyan]")
     for item in items:
-        console.print(f"   • {item}")
+        _safe_print(f"   • {item}")
 
 
 def seleccionar_opcion(lista: list[Any], mensaje: str, icono: str = "") -> Any:
@@ -141,14 +153,14 @@ def seleccionar_opcion(lista: list[Any], mensaje: str, icono: str = "") -> Any:
         # Primera opción en el orden listado (no orden alfabético) para flujos batch predecibles.
         return lista[0]
     lista_ordenada = sorted(lista)
-    console.print(Panel.fit(f"{icono} {mensaje}", style="cyan bold"))
+    _safe_print(Panel.fit(f"{icono} {mensaje}", style="cyan bold"))
     for i, opt in enumerate(lista_ordenada, 1):
-        console.print(f"[yellow]{i}.[/] {opt}")
+        _safe_print(f"[yellow]{i}.[/] {opt}")
     while True:
         try:
             sel = int(console.input("[green]👉 Seleccione número:[/] ").strip())
             if 1 <= sel <= len(lista_ordenada):
                 return lista_ordenada[sel - 1]
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OSError):
             pass
         print_error("Opción inválida, intente de nuevo.")

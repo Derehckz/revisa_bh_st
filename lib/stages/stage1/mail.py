@@ -29,6 +29,48 @@ def es_glosa_provisionado(glosa: object) -> bool:
     return any(p in text for p in ("provisionado", "provisonado", "provs"))
 
 
+def filas_sin_correo_valido(df, indices) -> list[dict[str, Any]]:
+    """Filas del lote cuyo Email_Docente no se puede usar para enviar."""
+    out: list[dict[str, Any]] = []
+    if df is None or indices is None:
+        return out
+    has_email = "Email_Docente" in df.columns
+    has_name = "NAME" in df.columns
+    has_emplid = "EMPLID" in df.columns
+    for idx in indices:
+        raw = df.at[idx, "Email_Docente"] if has_email else ""
+        email = utils.email_from_cell(raw)
+        if utils.validar_email(email):
+            continue
+        out.append(
+            {
+                "index": int(idx),
+                "fila": int(idx) + 1,
+                "name": str(df.at[idx, "NAME"]) if has_name else "",
+                "emplid": str(df.at[idx, "EMPLID"]) if has_emplid else "",
+                "email": email or "(vacío)",
+            }
+        )
+    return out
+
+
+def announce_invalid_emails(ui: InteractionPort, df, indices) -> list[dict[str, Any]]:
+    """Avisa en UI las filas sin correo válido. No bloquea; el envío las omite."""
+    invalidos = filas_sin_correo_valido(df, indices)
+    if not invalidos:
+        return []
+    ui.log(
+        f"{len(invalidos)} fila(s) sin correo válido: no se enviarán. "
+        "Completa Correo_Personal en BD-DOCENTES y regenera Solicitud (paso 0).",
+        level="warning",
+    )
+    ui.table(
+        "Sin correo válido (no se envían)",
+        [(f"{it['name']} ({it['emplid']})", it["email"]) for it in invalidos],
+    )
+    return invalidos
+
+
 def build_mail_item_key(
     año: int,
     mes: str,
@@ -133,7 +175,7 @@ def enviar_correos(
             direccion_razon = row["DireccionRazon"]
             glosa = row["GLOSA"]
             monto = row["CUS_TOT_HON"]
-            email = row["Email_Docente"]
+            email = utils.email_from_cell(row["Email_Docente"])
             email_dp = row.get("Email_DP")
             mes = str(row["MONTH"]).upper()
             año = int(row["YEAR"])
@@ -162,9 +204,15 @@ def enviar_correos(
                 cc_list.append(email_dp)
             cc_combined = "; ".join(cc_list)
 
-            if not (isinstance(email, str) and utils.validar_email(email)):
+            if not utils.validar_email(email):
                 df.at[idx, columna_envio] = f"❌ Correo inválido ({tipo})"
-                ui.log(f"Correo inválido ({tipo}) fila {idx + 1}: {email}", level="warning")
+                nombre = str(nombre_completo or "").strip() or "(sin nombre)"
+                rut = str(rut_docente or "").strip()
+                ui.log(
+                    f"Correo inválido ({tipo}) fila {idx + 1}: {nombre} ({rut}) — "
+                    f"{email or '(vacío)'}",
+                    level="warning",
+                )
                 stats["failed"] += 1
                 continue
 

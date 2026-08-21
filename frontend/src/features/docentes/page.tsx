@@ -1,18 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Mail, Receipt, Search, UserRound } from "lucide-react";
 import { useAppConfig } from "@/app/app-config";
 import { useDebouncedValue } from "@/shared/hooks/use-debounced-value";
 import { cn, toCurrency } from "@/shared/lib/utils";
+import { DirectoresPanel, emailDpForSede } from "./directores-panel";
 import {
   useBoletas,
+  useCreateDocente,
+  useDeleteDocente,
+  useDirectores,
+  useDisableDocente,
   useDocenteBoletas,
   useDocenteEmails,
   useDocenteMetrics,
   useDocenteProfile,
   useDocentes,
+  useUpdateDocente,
   usePeriods,
 } from "@/shared/api/queries";
 import type { DocenteItem } from "@/shared/api/types";
+import { defaultOperationPeriodKey } from "@/shared/lib/default-period";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { EmptyState } from "@/shared/ui/empty-state";
@@ -29,7 +37,7 @@ const PAGE_SIZE = 20;
 const BOLETAS_PAGE_SIZE = 12;
 const EMAILS_PAGE_SIZE = 12;
 
-type ListMode = "todos" | "provisionados";
+type ListMode = "todos" | "provisionados" | "directores";
 type DetailTab = "resumen" | "boletas" | "correos";
 
 function estadoTone(estado: string | null | undefined): "success" | "warning" | "danger" | "default" {
@@ -43,11 +51,15 @@ function estadoTone(estado: string | null | undefined): "success" | "warning" | 
 export function DocentesPage() {
   const { baseUrl, apiKey } = useAppConfig();
   const { push } = useToast();
+  const [searchParams] = useSearchParams();
 
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => searchParams.get("q") || "");
   const [page, setPage] = useState(1);
   const [listMode, setListMode] = useState<ListMode>("todos");
-  const [selectedDocenteId, setSelectedDocenteId] = useState<number | undefined>();
+  const [selectedDocenteId, setSelectedDocenteId] = useState<number | undefined>(() => {
+    const id = Number(searchParams.get("id") || "");
+    return Number.isFinite(id) && id > 0 ? id : undefined;
+  });
   const [gotoEmplid, setGotoEmplid] = useState("");
   const [detailTab, setDetailTab] = useState<DetailTab>("resumen");
 
@@ -58,9 +70,43 @@ export function DocentesPage() {
   const [emailTipo, setEmailTipo] = useState("");
   const [emailEstado, setEmailEstado] = useState("");
   const [emailsPage, setEmailsPage] = useState(1);
+  const [isEditing, setIsEditing] = useState(false);
+  const [form, setForm] = useState({
+    rut: "",
+    rut_sin_dv: "",
+    nombre_completo: "",
+    sede: "",
+    email_personal: "",
+    email_dp: "",
+    telefono: "",
+    direccion: "",
+    activo: "true",
+  });
 
   const debouncedQ = useDebouncedValue(q, 300);
   const periods = usePeriods(baseUrl, apiKey);
+
+  // Deep-link desde Informes de pagos: ?id=&year=&month= o ?q=
+  useEffect(() => {
+    const idRaw = searchParams.get("id");
+    const id = Number(idRaw || "");
+    if (Number.isFinite(id) && id > 0) {
+      setSelectedDocenteId(id);
+      setListMode("todos");
+      setDetailTab("resumen");
+    }
+    const qParam = searchParams.get("q");
+    if (qParam && !idRaw) {
+      setQ(qParam);
+      setGotoEmplid(qParam);
+      setPage(1);
+    }
+    const y = searchParams.get("year");
+    const m = searchParams.get("month");
+    if (y && m) {
+      setPeriodKey(`${y}-${m}`);
+    }
+  }, [searchParams]);
   const docentes = useDocentes(baseUrl, apiKey, {
     q: listMode === "todos" ? debouncedQ : "",
     page: listMode === "todos" ? page : 1,
@@ -68,6 +114,11 @@ export function DocentesPage() {
   });
   const lookup = useDocentes(baseUrl, apiKey, { q: gotoEmplid, page: 1, pageSize: 1 });
   const profile = useDocenteProfile(baseUrl, apiKey, selectedDocenteId);
+  const directores = useDirectores(baseUrl, apiKey);
+  const createDocente = useCreateDocente(baseUrl, apiKey);
+  const updateDocente = useUpdateDocente(baseUrl, apiKey);
+  const disableDocente = useDisableDocente(baseUrl, apiKey);
+  const deleteDocente = useDeleteDocente(baseUrl, apiKey);
 
   const selectedPeriod = periods.data?.find((p) => `${p.year}-${p.month_name}` === periodKey) || periods.data?.[0];
 
@@ -147,7 +198,7 @@ export function DocentesPage() {
 
   useEffect(() => {
     if (!periodKey && periods.data?.length) {
-      setPeriodKey(`${periods.data[0].year}-${periods.data[0].month_name}`);
+      setPeriodKey(defaultOperationPeriodKey(periods.data) || "");
     }
   }, [periods.data, periodKey]);
 
@@ -167,6 +218,20 @@ export function DocentesPage() {
     setEmailEstado("");
     setDetailTab("resumen");
   }, [selectedDocenteId]);
+
+  useEffect(() => {
+    const d = profile.data?.docente;
+    if (!d) return;
+    setForm((prev) => ({
+      ...prev,
+      rut: d.rut || "",
+      nombre_completo: d.nombre_completo || "",
+      sede: d.sede || "",
+      email_personal: d.email_personal || "",
+      email_dp: d.email_dp || "",
+      activo: (d.activo || "true").toLowerCase().includes("false") ? "false" : "true",
+    }));
+  }, [profile.data?.docente]);
 
   const totalPages = useMemo(() => {
     const total = docentes.data?.pagination.total || 0;
@@ -201,10 +266,90 @@ export function DocentesPage() {
 
   function selectFromList(item: DocenteItem) {
     setSelectedDocenteId(item.id);
+    setIsEditing(false);
   }
 
   function selectProvisionado(emplid: string) {
     setGotoEmplid(emplid);
+  }
+
+  function startCreateDocente() {
+    setSelectedDocenteId(undefined);
+    setIsEditing(true);
+    setForm({
+      rut: "",
+      rut_sin_dv: "",
+      nombre_completo: "",
+      sede: "",
+      email_personal: "",
+      email_dp: "",
+      telefono: "",
+      direccion: "",
+      activo: "true",
+    });
+  }
+
+  async function handleCreateOrUpdate() {
+    if (!form.rut.trim() || !form.nombre_completo.trim()) {
+      push("RUT y nombre completo son obligatorios", "error");
+      return;
+    }
+    const payload = {
+      rut: form.rut.trim(),
+      rut_sin_dv: form.rut_sin_dv.trim() || null,
+      nombre_completo: form.nombre_completo.trim(),
+      sede: form.sede.trim() || null,
+      email_personal: form.email_personal.trim() || null,
+      email_dp: form.email_dp.trim() || null,
+      telefono: form.telefono.trim() || null,
+      direccion: form.direccion.trim() || null,
+      activo: form.activo,
+    };
+    try {
+      if (selectedDocenteId) {
+        const res = await updateDocente.mutateAsync({ docenteId: selectedDocenteId, payload });
+        push(`Docente actualizado: ${res.docente.nombre_completo}`, "success");
+      } else {
+        const res = await createDocente.mutateAsync(payload);
+        push(`Docente creado: ${res.docente.nombre_completo}`, "success");
+        setSelectedDocenteId(res.docente.id);
+      }
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo guardar docente", "error");
+    }
+  }
+
+  async function handleDisable() {
+    if (!selectedDocenteId) return;
+    try {
+      const res = await disableDocente.mutateAsync(selectedDocenteId);
+      push(`Docente deshabilitado: ${res.docente.nombre_completo}`, "success");
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo deshabilitar docente", "error");
+    }
+  }
+
+  async function handleDelete() {
+    if (!selectedDocenteId) return;
+    if (!window.confirm("¿Eliminar docente seleccionado?")) return;
+    try {
+      const res = await deleteDocente.mutateAsync(selectedDocenteId);
+      push(`Docente eliminado: ${res.docente.nombre_completo}`, "success");
+      setSelectedDocenteId(undefined);
+      setForm({
+        rut: "",
+        rut_sin_dv: "",
+        nombre_completo: "",
+        sede: "",
+        email_personal: "",
+        email_dp: "",
+        telefono: "",
+        direccion: "",
+        activo: "true",
+      });
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo eliminar docente", "error");
+    }
   }
 
   const listCount =
@@ -216,23 +361,32 @@ export function DocentesPage() {
     <div className="flex h-[calc(100vh-4.5rem)] min-h-[520px] flex-col gap-4">
       <PageHeader
         title="Docentes"
-        description="Busca un docente y revisa boletas, montos y correos."
+        description={
+          listMode === "directores"
+            ? "Catálogo de directores de programa: nombre, correo y sedes asignadas."
+            : "Busca un docente, abre su perfil y edita datos personales."
+        }
         actions={
-          <Select
-            value={periodKey}
-            onChange={(e) => {
-              setPeriodKey(e.target.value);
-              setBoletasPage(1);
-            }}
-            className="min-w-[160px]"
-            aria-label="Período de contexto"
-          >
-            {(periods.data || []).map((p) => (
-              <option key={p.id} value={`${p.year}-${p.month_name}`}>
-                {p.month_name} {p.year}
-              </option>
-            ))}
-          </Select>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={startCreateDocente}>
+              Nuevo docente
+            </Button>
+            <Select
+              value={periodKey}
+              onChange={(e) => {
+                setPeriodKey(e.target.value);
+                setBoletasPage(1);
+              }}
+              className="min-w-[160px]"
+              aria-label="Período de contexto"
+            >
+              {(periods.data || []).map((p) => (
+                <option key={p.id} value={`${p.year}-${p.month_name}`}>
+                  {p.month_name} {p.year}
+                </option>
+              ))}
+            </Select>
+          </div>
         }
       />
 
@@ -244,6 +398,23 @@ export function DocentesPage() {
         />
       )}
 
+      <div className="flex w-fit gap-1 rounded-md bg-muted p-0.5">
+        <ModeChip active={listMode === "todos"} onClick={() => setListMode("todos")}>
+          Todos
+        </ModeChip>
+        <ModeChip active={listMode === "provisionados"} onClick={() => setListMode("provisionados")}>
+          Provisionados
+        </ModeChip>
+        <ModeChip active={listMode === "directores"} onClick={() => setListMode("directores")}>
+          Directores
+        </ModeChip>
+      </div>
+
+      {listMode === "directores" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border bg-card">
+          <DirectoresPanel baseUrl={baseUrl} apiKey={apiKey} />
+        </div>
+      ) : (
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(280px,340px)_1fr]">
         {/* —— Lista —— */}
         <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
@@ -319,6 +490,32 @@ export function DocentesPage() {
                     </span>
                     <span className="shrink-0 tabular-nums">{item.boletas_count} BH</span>
                   </span>
+                  <span className="mt-1 flex gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-7 px-2 text-2xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDocenteId(item.id);
+                        setIsEditing(false);
+                      }}
+                    >
+                      Ver perfil
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-7 px-2 text-2xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDocenteId(item.id);
+                        setIsEditing(true);
+                      }}
+                    >
+                      Editar
+                    </Button>
+                  </span>
                 </button>
               ))}
             {listMode === "todos" && !docentes.isLoading && (docentes.data?.data.length || 0) === 0 && (
@@ -387,12 +584,31 @@ export function DocentesPage() {
 
         {/* —— Detalle —— */}
         <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
-          {!selectedDocenteId && (
+          {!selectedDocenteId && !isEditing && (
             <div className="flex flex-1 items-center justify-center p-8">
               <EmptyState
                 title="Selecciona un docente"
                 description="Usa la lista de la izquierda o el modo Provisionados para abrir un perfil."
               />
+            </div>
+          )}
+
+          {!selectedDocenteId && isEditing && (
+            <div className="p-4">
+              <h2 className="mb-3 text-lg font-semibold tracking-tight">Nuevo docente</h2>
+              <DocenteForm
+                form={form}
+                onChange={setForm}
+                sedeEmails={directores.data?.data || []}
+              />
+              <div className="mt-3 flex gap-2">
+                <Button onClick={() => void handleCreateOrUpdate()} disabled={createDocente.isPending}>
+                  Agregar docente
+                </Button>
+                <Button variant="outline" onClick={() => setIsEditing(false)}>
+                  Cancelar
+                </Button>
+              </div>
             </div>
           )}
 
@@ -433,6 +649,23 @@ export function DocentesPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <Badge tone={form.activo === "false" ? "warning" : "success"}>
+                      {form.activo === "false" ? "Inactivo" : "Activo"}
+                    </Badge>
+                    <Button variant="outline" size="sm" onClick={() => setIsEditing((v) => !v)}>
+                      {isEditing ? "Ocultar edición" : "Editar perfil"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleDisable()}
+                      disabled={disableDocente.isPending}
+                    >
+                      Deshabilitar
+                    </Button>
+                    <Button variant="danger" size="sm" onClick={() => void handleDelete()} disabled={deleteDocente.isPending}>
+                      Eliminar
+                    </Button>
                     <StatPill label="Boletas" value={String(profile.data.docente.boletas_count)} />
                     <StatPill label="Monto" value={toCurrency(profile.data.docente.monto_total)} />
                     <StatPill
@@ -475,6 +708,28 @@ export function DocentesPage() {
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                {isEditing && (
+                  <div className="mb-4 rounded-lg border border-border bg-muted/30 p-3">
+                    <p className="mb-2 text-sm font-medium">Editar datos del docente</p>
+                    <DocenteForm
+                      form={form}
+                      onChange={setForm}
+                      sedeEmails={directores.data?.data || []}
+                    />
+                    <div className="mt-3 flex gap-2">
+                      <Button onClick={() => void handleCreateOrUpdate()} disabled={updateDocente.isPending}>
+                        Guardar cambios
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setForm({ ...form, activo: form.activo === "false" ? "true" : "false" })}
+                      >
+                        Marcar {form.activo === "false" ? "activo" : "inactivo"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {detailTab === "resumen" && (
                   <div className="space-y-5">
                     <div>
@@ -632,7 +887,7 @@ export function DocentesPage() {
                                 </TD>
                                 <TD className="text-right tabular-nums">{toCurrency(row.monto_bruto)}</TD>
                                 <TD>
-                                  {row.archivo_xml ? (
+                                  {row.has_xml_file ? (
                                     <div className="flex gap-1">
                                       <Button
                                         variant="ghost"
@@ -650,7 +905,7 @@ export function DocentesPage() {
                                       </Button>
                                     </div>
                                   ) : (
-                                    <span className="text-xs text-muted-foreground">Sin archivo</span>
+                                    <span className="text-xs text-muted-foreground">Sin XML/PDF recibido</span>
                                   )}
                                 </TD>
                               </tr>
@@ -736,6 +991,7 @@ export function DocentesPage() {
           )}
         </section>
       </div>
+      )}
     </div>
   );
 }
@@ -760,6 +1016,91 @@ function ModeChip({
     >
       {children}
     </button>
+  );
+}
+
+function DocenteForm({
+  form,
+  onChange,
+  sedeEmails = [],
+}: {
+  form: {
+    rut: string;
+    rut_sin_dv: string;
+    nombre_completo: string;
+    sede: string;
+    email_personal: string;
+    email_dp: string;
+    telefono: string;
+    direccion: string;
+    activo: string;
+  };
+  onChange: (next: {
+    rut: string;
+    rut_sin_dv: string;
+    nombre_completo: string;
+    sede: string;
+    email_personal: string;
+    email_dp: string;
+    telefono: string;
+    direccion: string;
+    activo: string;
+  }) => void;
+  sedeEmails?: Array<{ email: string; sedes: string[] }>;
+}) {
+  const knownSedes = Array.from(new Set(sedeEmails.flatMap((d) => d.sedes))).sort();
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <Input placeholder="RUT" value={form.rut} onChange={(e) => onChange({ ...form, rut: e.target.value })} />
+      <Input
+        placeholder="RUT sin DV"
+        value={form.rut_sin_dv}
+        onChange={(e) => onChange({ ...form, rut_sin_dv: e.target.value })}
+      />
+      <Input
+        placeholder="Nombre completo"
+        value={form.nombre_completo}
+        onChange={(e) => onChange({ ...form, nombre_completo: e.target.value })}
+      />
+      <div className="grid gap-1">
+        <Input
+          placeholder="Sede"
+          list="bh-sedes-dp"
+          value={form.sede}
+          onChange={(e) => {
+            const sede = e.target.value;
+            const dp = emailDpForSede(sedeEmails, sede);
+            onChange({ ...form, sede, email_dp: dp || form.email_dp });
+          }}
+        />
+        <datalist id="bh-sedes-dp">
+          {knownSedes.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      </div>
+      <Input
+        placeholder="Email personal"
+        value={form.email_personal}
+        onChange={(e) => onChange({ ...form, email_personal: e.target.value })}
+      />
+      <Input
+        placeholder="Email DP (según sede)"
+        value={form.email_dp}
+        readOnly={Boolean(emailDpForSede(sedeEmails, form.sede))}
+        onChange={(e) => onChange({ ...form, email_dp: e.target.value })}
+      />
+      <Input
+        placeholder="Teléfono"
+        value={form.telefono}
+        onChange={(e) => onChange({ ...form, telefono: e.target.value })}
+      />
+      <Input
+        placeholder="Dirección"
+        value={form.direccion}
+        onChange={(e) => onChange({ ...form, direccion: e.target.value })}
+      />
+    </div>
   );
 }
 

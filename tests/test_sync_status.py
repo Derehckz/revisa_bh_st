@@ -21,6 +21,7 @@ def test_status_ok_when_counts_match():
     with (
         patch("stage_operations.period_summary", return_value=_excel_summary(20)),
         patch("sync_status._db_boleta_count", return_value=20),
+        patch("sync_status.get_bool_setting", return_value=False),
     ):
         out = sync_status.period_sync_status(2026, "Julio")
     assert out["status"] == "ok"
@@ -32,6 +33,7 @@ def test_status_degraded_when_counts_differ_significantly():
     with (
         patch("stage_operations.period_summary", return_value=_excel_summary(20)),
         patch("sync_status._db_boleta_count", return_value=5),
+        patch("sync_status.get_bool_setting", return_value=False),
     ):
         out = sync_status.period_sync_status(2026, "Julio")
     assert out["status"] == "degraded"
@@ -41,6 +43,7 @@ def test_status_ok_with_small_rounding_difference():
     with (
         patch("stage_operations.period_summary", return_value=_excel_summary(100)),
         patch("sync_status._db_boleta_count", return_value=98),
+        patch("sync_status.get_bool_setting", return_value=False),
     ):
         out = sync_status.period_sync_status(2026, "Julio")
     assert out["status"] == "ok"
@@ -50,6 +53,7 @@ def test_status_unknown_when_periodo_missing_in_db():
     with (
         patch("stage_operations.period_summary", return_value=_excel_summary(20)),
         patch("sync_status._db_boleta_count", return_value=None),
+        patch("sync_status.get_bool_setting", return_value=False),
     ):
         out = sync_status.period_sync_status(2026, "Julio")
     assert out["status"] == "unknown"
@@ -59,6 +63,7 @@ def test_status_unknown_when_db_query_raises():
     with (
         patch("stage_operations.period_summary", return_value=_excel_summary(20)),
         patch("sync_status._db_boleta_count", side_effect=RuntimeError("no db")),
+        patch("sync_status.get_bool_setting", return_value=False),
     ):
         out = sync_status.period_sync_status(2026, "Julio")
     assert out["status"] == "unknown"
@@ -66,7 +71,10 @@ def test_status_unknown_when_db_query_raises():
 
 
 def test_status_unknown_when_excel_read_raises():
-    with patch("stage_operations.period_summary", side_effect=RuntimeError("locked file")):
+    with (
+        patch("stage_operations.period_summary", side_effect=RuntimeError("locked file")),
+        patch("sync_status.get_bool_setting", return_value=False),
+    ):
         out = sync_status.period_sync_status(2026, "Julio")
     assert out["status"] == "unknown"
 
@@ -75,6 +83,26 @@ def test_status_unknown_when_no_data_at_all():
     with (
         patch("stage_operations.period_summary", return_value=_excel_summary(0, solicitud_exists=False)),
         patch("sync_status._db_boleta_count", return_value=0),
+        patch("sync_status.get_bool_setting", return_value=False),
+    ):
+        out = sync_status.period_sync_status(2026, "Julio")
+    assert out["status"] == "unknown"
+
+
+def test_db_first_status_ok_when_period_has_boletas():
+    with (
+        patch("sync_status.get_bool_setting", return_value=True),
+        patch("sync_status._db_boleta_count", return_value=99),
+    ):
+        out = sync_status.period_sync_status(2026, "Julio")
+    assert out["status"] == "ok"
+    assert "99 solicitud" in out["message"]
+
+
+def test_db_first_status_unknown_when_period_missing():
+    with (
+        patch("sync_status.get_bool_setting", return_value=True),
+        patch("sync_status._db_boleta_count", return_value=None),
     ):
         out = sync_status.period_sync_status(2026, "Julio")
     assert out["status"] == "unknown"

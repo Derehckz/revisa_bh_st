@@ -97,23 +97,22 @@ python main.py --year 2026 --month Abril --start-from 1 --end-at 1
 
 ### Data DB
 
-- Verificación dominio:
+**Desde la interfaz (recomendado):**
+- **Operación** → **Verificar período** (import + proyección + comparación + métricas del mes).
+- **Ajustes** → **Revisar consistencia global**.
+
+Equivalente por consola (mantenimiento avanzado):
 
 ```bash
 python db/check_domain.py
-```
-
-- Verificación por período:
-
-```bash
-python db/check_period.py
-```
-
-- Verificación de runs:
-
-```bash
+python db/check_period.py --year 2026 --month Julio
 python db/check_runs.py
 ```
+
+Endpoints API:
+- `POST /operations/period/verify`
+- `POST /operations/db/migrate`
+- `POST /operations/db/consistency-check`
 
 ### Tests
 
@@ -195,15 +194,16 @@ Acción:
 ## 7) Sesiones web supervisadas vs envío real
 
 - La **CI y pytest** no envían correos ni abren Outlook (ver batería en `README.md`).
-- En la web, las etapas **5 y 7** rechazan `send=true` en sesión interactiva; solo **vista previa** (`per_mail`).
-- El **envío real** de recepción/pagos: consola con supervisión manual, por ejemplo:
+- En la web, las etapas **5 y 7** **sí permiten** `send=true` en sesión interactiva, con confirmación explícita de envío a producción en la UI.
+- Sin marcar envío real, la sesión solo previsualiza / analiza (`per_mail` / dry preview).
+- Alternativa por consola (supervisión correo a correo):
   ```bash
   python etapas/5.-Enviar_Correo_Recepcion.py --year 2026 --month Mayo --supervision-mode per_mail --send
   python etapas/7.-Envia_mail_pagos.py --year 2026 --month Mayo --fecha-pago 15/05/2026 --supervision-mode per_mail --send
   ```
-- Etapa **8** en web: obligatorio `map_csv` (CSV RUT,IP|CFT). Generar con `python herramientas/generar_map_ip_cft.py` si falta.
+- Etapa **8** en web: obligatorio `map_csv` (CSV RUT,IP|CFT). Si falta `map_ip_cft.csv`, la API lo genera desde Solicitud al iniciar; o: `python herramientas/generar_map_ip_cft.py --year … --month …`.
+- Etapa **10** = **revisión de carpetas IP/CFT** (no cierra el mes). El cierre formal está en Operación → pestaña **Cierre**.
 - Etapa **10**: la sesión web emite eventos `folder.progress` (N/M carpetas).
-
 ## 8) Criterio de salida (release-ready mínimo)
 
 - API responde `200` en `/health` y `/periods` con key.
@@ -225,8 +225,46 @@ Acción:
   - validar mensaje UX para `401/422/429/503`.
   - validar shortcuts (`Ctrl+B`, `/`, `Esc`).
 
-## 9) Referencias
+## 9) Operación mensual en empresa (dueño del servidor)
+
+### Quién reinicia / mantiene el servidor
+
+- Responsable local: operador que ejecuta `start-bh.ps1` (o el banner de reinicio en la UI).
+- Si la API no responde: reiniciar con `.\start-bh.ps1` desde la raíz del repo; verificar `/health`.
+
+### Backups PostgreSQL
+
+- Carpeta: `.backups/postgres/bh_YYYYMMDD_HHMMSS.dump`
+- Manual (PowerShell):
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\herramientas\backup_postgres.ps1
+  ```
+- Desde la web: **Ajustes → Crear backup ahora** (`POST /operations/db/backup`).
+- Restaurar (cuidado: sobrescribe la BD):
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\herramientas\restore_postgres.ps1 -DumpPath .\.backups\postgres\bh_....dump
+  ```
+- Programar diario: Programador de tareas de Windows → acción = el script `backup_postgres.ps1` (retención ~14 dumps).
+- Requiere `pg_dump` / `pg_restore` en PATH y variables `BH_DB_*` en `.env`.
+
+### Dependencias del entorno
+
+- Outlook / Windows COM para envío de correos (pasos 1, 5, 7).
+- PostgreSQL local como fuente de verdad del período.
+- Nombre del operador en Ajustes (header `x-operator-name`) para la bitácora.
+
+### Checklist antes del cierre mensual
+
+1. Mes creado y maestro validado (paso 0 OK, Solicitud sincronizada en BD).
+2. Pasos 1–6 completos; informe visible en **Informe**.
+3. Revisar checklist en **Operación** (ítems bloqueantes en verde).
+4. Opcional: backup BD antes de cerrar.
+5. **Cerrar período** (congela informe + `estado=cerrado`). No confundir con “Ejecutar pendientes (2–10)”.
+6. Si hay que corregir: **Reabrir período** (confirmación explícita) → corregir → volver a cerrar.
+
+## 10) Referencias
 
 - Contrato API: `API_CONTRACT.md`
 - Variables ejemplo: `.env.example`
 - Scripts de validación DB: `db/check_domain.py`, `db/check_period.py`, `db/check_runs.py`
+- Backup: `herramientas/backup_postgres.ps1`, `herramientas/restore_postgres.ps1`

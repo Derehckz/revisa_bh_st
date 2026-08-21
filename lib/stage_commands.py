@@ -278,7 +278,13 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
         return sheet_fields
     if stage_num == 8:
         return sheet_fields + [
-            _param_field("dry_run", cli="--dry-run", label="Simular (no copiar/mover)", default=True),
+            _param_field(
+                "dry_run",
+                cli="--dry-run",
+                label="Solo simular (no crea carpetas IP/CFT)",
+                default=True,
+                help_text="Para clasificar de verdad, desmarca esta opción.",
+            ),
             _param_field("mover", cli="--mover", label="Mover en lugar de copiar"),
             _param_field(
                 "map_csv",
@@ -338,11 +344,27 @@ def validate_interactive_params(stage_num: int, params: dict[str, Any]) -> None:
     """Validación extra para sesiones WebSocket supervisadas."""
     validate_stage_params(stage_num, params)
 
-    if stage_num == 8 and not str(params.get("map_csv") or "").strip():
-        raise ValueError(
-            "Etapa 8 (web supervisada): indique map_csv (CSV RUT,CFT|IP). "
-            "Genérelo con herramientas/generar_map_ip_cft.py si falta."
-        )
+    if stage_num == 8:
+        year = params.get("year")
+        month = params.get("month")
+        map_csv = str(params.get("map_csv") or "").strip()
+        if year is None or not month:
+            raise ValueError("year y month son obligatorios para el paso 8")
+        if not map_csv:
+            raise ValueError(
+                "Etapa 8 (web supervisada): indique map_csv (CSV RUT,CFT|IP). "
+                "Genérelo con herramientas/generar_map_ip_cft.py si falta."
+            )
+        import map_ip_cft
+
+        # Genera map_ip_cft.csv si apunta al default y falta; rechaza Contabilidad_pagos.csv
+        abs_path = map_ip_cft.ensure_map_for_period(year, month, map_csv)
+        # Normaliza a ruta relativa al repo para el bridged argv
+        try:
+            rel = os.path.relpath(abs_path, config.RAIZ).replace("\\", "/")
+            params["map_csv"] = rel
+        except ValueError:
+            params["map_csv"] = abs_path
 
 
 def _apply_schema_flags(stage_num: int, params: dict[str, Any], extra: list[str], *, repo_root: str) -> None:

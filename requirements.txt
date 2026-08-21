@@ -20,6 +20,7 @@ psycopg[binary]==3.3.3
 alembic==1.18.4
 fastapi==0.115.12
 uvicorn==0.34.0
+python-multipart==0.0.20
 
 # Opcionales para script 9 (revisión carpetas IP/CFT con OCR):
 # PyMuPDF>=1.21.0

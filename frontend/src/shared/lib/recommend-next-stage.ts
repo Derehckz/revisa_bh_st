@@ -46,12 +46,12 @@ export function recommendFromOverview(overview: PeriodOverviewResponse): PeriodR
     };
   }
 
-  if (!kpis.solicitud_exists) {
+  if (!kpis.total_rows) {
     return {
       kind: "run",
       stage_num: 0,
       title: "Generar Solicitud",
-      message: "No hay Solicitud.xlsx en el mes.",
+      message: "Aún no hay solicitudes en este período.",
       action_label: "Ir a paso 0",
     };
   }

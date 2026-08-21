@@ -48,6 +48,24 @@ class TestStageOperations(unittest.TestCase):
             self.assertIsNotNone(stage2["last_job"])
             self.assertEqual(stage2["last_job"]["source"], "filesystem")
 
+    def test_ui_status_ignores_api_request_noise_logs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            solicitud_dir = os.path.join(tmp, "2026", "Agosto")
+            os.makedirs(solicitud_dir)
+            with open(os.path.join(solicitud_dir, "Solicitud.xlsx"), "wb") as f:
+                f.write(b"PK")
+            log_dir = os.path.join(solicitud_dir, "logs_envios")
+            os.makedirs(log_dir)
+            with open(os.path.join(log_dir, "envio_boletas.log"), "w", encoding="utf-8") as f:
+                f.write("2026-08-21 12:15:23,740 [INFO] api.request\n")
+            with patch.object(stage_operations.config, "RAIZ", tmp):
+                with patch("email_outbox.stats_by_status", return_value={}):
+                    overview = stage_operations.period_overview(2026, "Agosto", jobs=[])
+            stage0 = next(s for s in overview["stages"] if s["stage_num"] == 0)
+            stage1 = next(s for s in overview["stages"] if s["stage_num"] == 1)
+            self.assertEqual(stage0["ui_status"], "OK")
+            self.assertNotEqual(stage1["ui_status"], "OK")
+
     def test_period_overview_structure(self):
         with tempfile.TemporaryDirectory() as tmp:
             os.makedirs(os.path.join(tmp, "2026", "Mayo"), exist_ok=True)

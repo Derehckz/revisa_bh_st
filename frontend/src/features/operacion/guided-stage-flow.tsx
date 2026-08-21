@@ -21,6 +21,7 @@ type Props = {
   prereqOk: boolean;
   configureContent: ReactNode;
   confirmSummary: ReactNode;
+  reviewExtra?: ReactNode;
   onExecute: () => void;
   executeDisabled: boolean;
   isExecuting: boolean;
@@ -35,6 +36,7 @@ export function GuidedStageFlow({
   prereqOk,
   configureContent,
   confirmSummary,
+  reviewExtra,
   onExecute,
   executeDisabled,
   isExecuting,
@@ -73,11 +75,11 @@ export function GuidedStageFlow({
               className={cn(
                 "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                 active && "border-primary bg-primary text-primary-foreground",
-                !active && done && "border-green-600/40 bg-green-50 text-green-800",
+                !active && done && "border-border bg-muted/70 text-foreground",
                 !active && !done && "border-border bg-card text-muted-foreground hover:bg-muted"
               )}
             >
-              {done && <CheckCircle2 className="inline mr-1 h-3 w-3" />}
+              {done && <CheckCircle2 className="inline mr-1 h-3 w-3 text-muted-foreground" />}
               {s.label}
             </button>
           );
@@ -108,7 +110,7 @@ export function GuidedStageFlow({
 
           {kpis && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
-              <KpiBox label="Filas Solicitud" value={kpis.solicitud_exists ? String(kpis.total_rows) : "—"} />
+              <KpiBox label="Solicitudes" value={(kpis.total_rows ?? 0) > 0 ? String(kpis.total_rows) : "—"} />
               <KpiBox label="Recibidos" value={String(kpis.recibidos)} />
               <KpiBox label="XML en mes" value={String(kpis.xml_files_in_month)} />
               <KpiBox label="PDF en mes" value={String(kpis.pdf_files_in_month)} />
@@ -116,6 +118,8 @@ export function GuidedStageFlow({
           )}
 
           {checklist && <PrerequisiteChecklist items={checklist} />}
+
+          {reviewExtra}
 
           {!prereqOk && (
             <p className="text-sm text-amber-800">

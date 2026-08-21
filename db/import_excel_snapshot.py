@@ -17,10 +17,16 @@ if __package__ is None or __package__ == "":
 import pandas as pd
 from sqlalchemy import select
 
-from db.models import Boleta, BoletaXmlData
+from db.models import Boleta, BoletaXmlData, Docente, Institucion
 from db.session import SessionLocal
 from db.file_repository import get_or_create_periodo
-from db.key_builder import build_boleta_key
+from db.key_builder import build_boleta_key, is_provisionado_glosa
+from db.solicitud_row import merge_solicitud_row, serialize_solicitud_row
+from db.state_projection import (
+    classify_mail_recepcion_status,
+    classify_recepcion_status,
+    classify_xml_status,
+)
 import utils
 
 BASE_REQUIRED_SOLICITUD_COLUMNS = {
@@ -79,6 +85,157 @@ def _has_valid_xml_payload(row: dict) -> bool:
     return bool(numero or total)
 
 
+def _key_kind(key: str) -> str:
+    s = _clean(key)
+    if "|NB|" in s:
+        return "NB"
+    if "|XML|" in s:
+        return "XML"
+    if "|MTO|" in s:
+        return "MTO"
+    return ""
+
+
+def _should_replace_key(old_key: str | None, new_key: str | None) -> bool:
+    old_kind = _key_kind(old_key or "")
+    new_kind = _key_kind(new_key or "")
+    if not _clean(new_key):
+        return False
+    if not _clean(old_key):
+        return True
+    # Subir de una clave "débil" (MTO) a una más estable (NB/XML).
+    if old_kind == "MTO" and new_kind in {"NB", "XML"}:
+        return True
+    return False
+
+
+def _normalize_location_code(value: object) -> str:
+    text = _clean(value)
+    if text.endswith(".0") and text[:-2].isdigit():
+        return text[:-2]
+    return text
+
+
+def _link_docente_institucion(
+    session,
+    boleta: Boleta,
+    *,
+    emplid: str,
+    rut_sin_dv: str,
+    rut_razon: str,
+    location: str,
+) -> None:
+    if boleta.docente_id is None:
+        docente = None
+        if emplid:
+            docente = session.execute(select(Docente).where(Docente.rut == emplid)).scalar_one_or_none()
+        if docente is None and rut_sin_dv:
+            docente = session.execute(
+                select(Docente).where(Docente.rut_sin_dv == rut_sin_dv)
+            ).scalar_one_or_none()
+        if docente is not None:
+            boleta.docente_id = docente.id
+    if boleta.institucion_id is None:
+        inst = None
+        loc = _normalize_location_code(location)
+        if loc:
+            inst = session.execute(
+                select(Institucion).where(Institucion.codigo_location == loc)
+            ).scalar_one_or_none()
+        if inst is None and rut_razon:
+            inst = session.execute(
+                select(Institucion).where(Institucion.rut_razon == rut_razon)
+            ).scalar_one_or_none()
+        if inst is not None:
+            boleta.institucion_id = inst.id
+
+
+def _legacy_mto_keys(boleta_key: str) -> list[str]:
+    """Claves MTO anteriores, sin el discriminador |P|0/1 de provisionado."""
+    if "|P|" not in (boleta_key or ""):
+        return []
+    base, _rest = boleta_key.rsplit("|P|", 1)
+    return [base] if base else []
+
+
+def select_compatible_boleta(
+    rows: list,
+    *,
+    rut_razon: str,
+    monto_decimal: Decimal | None,
+    incoming_prov: bool,
+):
+    """Elige la boleta del mismo docente/institución/provisión/monto.
+
+    No reutiliza «la única fila del EMPLID»: eso fusionaba IP+CFT y
+    maestro+PROVISIONADO en una sola boleta.
+    """
+    compatible = []
+    for row in rows:
+        row_rut = str(getattr(row, "rut_razon", None) or "").strip()
+        if rut_razon and row_rut and row_rut != rut_razon:
+            continue
+        if is_provisionado_glosa(getattr(row, "glosa", None)) != incoming_prov:
+            continue
+        compatible.append(row)
+    if not compatible:
+        return None
+    if monto_decimal is not None:
+        matches = [r for r in compatible if r.monto_bruto == monto_decimal]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            mto = [r for r in matches if _key_kind(r.boleta_key or "") == "MTO"]
+            if len(mto) == 1:
+                return mto[0]
+        return None
+    if len(compatible) == 1:
+        return compatible[0]
+    return None
+
+
+def _find_existing_boleta(
+    *,
+    session,
+    periodo_id: int,
+    boleta_key: str,
+    emplid: str,
+    rut_sin_dv: str,
+    monto_decimal: Decimal | None,
+    rut_razon: str,
+    glosa: str = "",
+) -> Boleta | None:
+    incoming_prov = is_provisionado_glosa(glosa)
+    keys_to_try = [boleta_key] if boleta_key else []
+    keys_to_try.extend(_legacy_mto_keys(boleta_key))
+    for key in keys_to_try:
+        row = session.execute(
+            select(Boleta).where(Boleta.periodo_id == periodo_id, Boleta.boleta_key == key)
+        ).scalar_one_or_none()
+        if row is None:
+            continue
+        if key != boleta_key and is_provisionado_glosa(row.glosa) != incoming_prov:
+            continue
+        return row
+
+    candidate_ids = [c for c in {emplid, rut_sin_dv} if c]
+    for candidate_id in candidate_ids:
+        rows = session.execute(
+            select(Boleta).where(Boleta.periodo_id == periodo_id, Boleta.emplid == candidate_id)
+        ).scalars().all()
+        if not rows:
+            continue
+        found = select_compatible_boleta(
+            rows,
+            rut_razon=rut_razon,
+            monto_decimal=monto_decimal,
+            incoming_prov=incoming_prov,
+        )
+        if found is not None:
+            return found
+    return None
+
+
 def run_import(path: str, sheet_solicitud: str, sheet_resumen: str, anio: int, mes_nombre: str) -> dict:
     meses = [m.lower() for m in ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]]
     mes_num = meses.index(mes_nombre.lower()) + 1
@@ -109,36 +266,53 @@ def run_import(path: str, sheet_solicitud: str, sheet_resumen: str, anio: int, m
                 emplid = _clean(row.get("EMPLID"))
                 rut_sin_dv = _clean(row.get("RUT_SIN_DV"))
                 boleta_key = build_boleta_key(row.to_dict())
-                boleta = None
-
-                if boleta_key:
-                    boleta = session.execute(
-                        select(Boleta).where(Boleta.periodo_id == periodo_id, Boleta.boleta_key == boleta_key)
-                    ).scalar_one_or_none()
-                else:
-                    if boleta is None and emplid:
-                        boleta = session.execute(
-                            select(Boleta).where(Boleta.periodo_id == periodo_id, Boleta.emplid == emplid)
-                        ).scalar_one_or_none()
-                    if boleta is None and rut_sin_dv:
-                        boleta = session.execute(
-                            select(Boleta).where(Boleta.periodo_id == periodo_id, Boleta.emplid == rut_sin_dv)
-                        ).scalar_one_or_none()
+                rut_razon = _clean(row.get("RUT RAZON"))
+                monto_decimal = _to_decimal(row.get("CUS_TOT_HON"))
+                glosa = _clean(row.get("GLOSA"))
+                boleta = _find_existing_boleta(
+                    session=session,
+                    periodo_id=periodo_id,
+                    boleta_key=boleta_key,
+                    emplid=emplid,
+                    rut_sin_dv=rut_sin_dv,
+                    monto_decimal=monto_decimal,
+                    rut_razon=rut_razon,
+                    glosa=glosa,
+                )
 
                 created = False
                 if boleta is None:
                     boleta = Boleta(periodo_id=periodo_id, boleta_key=boleta_key, emplid=emplid or rut_sin_dv or None)
                     session.add(boleta)
                     created = True
-                elif boleta_key and not boleta.boleta_key:
+                elif _should_replace_key(boleta.boleta_key, boleta_key):
                     boleta.boleta_key = boleta_key
 
                 boleta.estado_recepcion = _clean(row.get("Estado_Recepcion")) or None
                 boleta.observaciones_recepcion = _clean(row.get("Observaciones")) or None
+                recepcion_status, reason, glosa_mode = classify_recepcion_status(row.to_dict())
+                boleta.recepcion_status = recepcion_status
+                boleta.xml_status = classify_xml_status(row.to_dict())
+                boleta.mail_recepcion_status = classify_mail_recepcion_status(row.to_dict())
+                boleta.glosa_match_mode = glosa_mode
+                boleta.effective_status_reason = reason
                 boleta.glosa = _clean(row.get("GLOSA")) or None
-                boleta.rut_razon = _clean(row.get("RUT RAZON")) or None
-                boleta.monto_bruto = _to_decimal(row.get("CUS_TOT_HON"))
+                boleta.rut_razon = rut_razon or None
+                boleta.monto_bruto = monto_decimal
                 boleta.descripcion = _clean(row.get("archivo_xml")) or None
+                boleta.empl_rcd = _clean(row.get("EMPL_RCD")) or None
+                boleta.solicitud_row = merge_solicitud_row(
+                    boleta.solicitud_row,
+                    serialize_solicitud_row(row.to_dict()),
+                )
+                _link_docente_institucion(
+                    session,
+                    boleta,
+                    emplid=emplid,
+                    rut_sin_dv=rut_sin_dv,
+                    rut_razon=rut_razon,
+                    location=_clean(row.get("LOCATION")),
+                )
                 boleta.updated_at = datetime.now(UTC)
 
                 session.flush()

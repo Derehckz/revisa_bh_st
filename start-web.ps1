@@ -5,6 +5,7 @@
 
 param(
     [switch]$NoBrowser,
+    [switch]$Restart,
     [int]$ApiPort = 8000,
     [int]$WebPort = 5173
 )
@@ -35,14 +36,22 @@ if (-not (Test-Path (Join-Path $Root "frontend\node_modules"))) {
 
 $env:PYTHONPATH = "$Root;$Root\lib"
 
+if ($Restart) {
+    Write-Host "Reiniciando API (puerto $ApiPort)..." -ForegroundColor Cyan
+    & (Join-Path $Root "stop-web.ps1") -ApiPort $ApiPort -WebPort $WebPort | Out-Host
+    Start-Sleep -Seconds 1
+}
+
 if (Test-PortListen $ApiPort) {
     Write-Host "API ya escucha en :$ApiPort (no se abre otra ventana)." -ForegroundColor DarkYellow
+    Write-Host "Tras cambios en Python usa: reiniciar-bh.bat o start-web.ps1 -Restart" -ForegroundColor DarkGray
 } else {
-    Write-Host "Iniciando API en http://127.0.0.1:$ApiPort ..." -ForegroundColor Green
+    Write-Host "Iniciando API en http://127.0.0.1:$ApiPort (recarga automatica)..." -ForegroundColor Green
     Start-Process -FilePath "python" -ArgumentList @(
         "-m", "uvicorn", "api.app:app",
         "--host", "127.0.0.1",
-        "--port", "$ApiPort"
+        "--port", "$ApiPort",
+        "--reload"
     ) -WorkingDirectory $Root -WindowStyle Normal
 }
 

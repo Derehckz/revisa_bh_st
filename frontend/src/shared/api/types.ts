@@ -4,6 +4,9 @@ export type Period = {
   month_num: number;
   month_name: string;
   status: string;
+  closed_at?: string | null;
+  closed_by?: string | null;
+  informe_frozen_at?: string | null;
 };
 
 export type DataFreshness = {
@@ -48,6 +51,7 @@ export type BoletaItem = {
   glosa?: string | null;
   monto_bruto: number | null;
   archivo_xml: string | null;
+  has_xml_file?: boolean | null;
 };
 
 export type PaginatedBoletas = {
@@ -102,6 +106,10 @@ export type RunStagesResponse = {
 export type HealthResponse = {
   status: string;
   ui?: string | null;
+  capabilities_version?: number | null;
+  capabilities?: Record<string, boolean> | null;
+  read_from_db?: boolean | null;
+  started_at?: string | null;
 };
 
 export type YearStatsResponse = {
@@ -110,6 +118,7 @@ export type YearStatsResponse = {
     boletas: number;
     xml: number;
     emails: number;
+    monto_total?: number;
     xml_coverage_pct: number;
     email_coverage_pct: number;
   };
@@ -120,6 +129,7 @@ export type YearStatsResponse = {
     boletas: number;
     xml: number;
     emails: number;
+    monto_total?: number;
     xml_coverage_pct: number;
     email_coverage_pct: number;
   }>;
@@ -183,8 +193,40 @@ export type DocenteItem = {
   sede: string | null;
   email_personal: string | null;
   email_dp: string | null;
+  activo?: string | null;
   boletas_count: number;
   monto_total: number;
+};
+
+export type DocenteUpsertPayload = {
+  rut: string;
+  rut_sin_dv?: string | null;
+  nombre_completo: string;
+  email_personal?: string | null;
+  email_dp?: string | null;
+  telefono?: string | null;
+  direccion?: string | null;
+  sede?: string | null;
+  activo?: string | null;
+};
+
+export type DirectorPrograma = {
+  id: number;
+  nombre: string | null;
+  email: string;
+  activo?: string | null;
+  sedes: string[];
+};
+
+export type DirectorListResponse = {
+  data: DirectorPrograma[];
+};
+
+export type DirectorUpsertPayload = {
+  nombre?: string | null;
+  email: string;
+  sedes: string[];
+  activo?: string | null;
 };
 
 export type DocenteListResponse = {
@@ -296,6 +338,44 @@ export type StageGuide = {
   steps: StageGuideStep[];
 };
 
+export type RecepcionAudience = "ok" | "error" | "reenvio";
+export type ReenvioTipo = "recordatorio" | "boleta_incorrecta";
+
+export type RecepcionPreviewCandidate = {
+  row: number;
+  index?: number;
+  audience: RecepcionAudience;
+  reenvio_tipo?: ReenvioTipo;
+  kind: "ok" | "problema";
+  name: string;
+  email: string;
+  emplid: string;
+  estado_recepcion: string;
+  numero_boleta: string;
+  monto: string;
+  problema: string;
+  already_sent: boolean;
+  correo_recepcion?: string;
+};
+
+export type RecepcionPreview = {
+  candidates: RecepcionPreviewCandidate[];
+  counts: {
+    ok?: number;
+    error?: number;
+    reenvio?: number;
+    recordatorio?: number;
+    boleta_incorrecta?: number;
+    ok_pending?: number;
+    error_pending?: number;
+    reenvio_pending?: number;
+    recordatorio_pending?: number;
+    boleta_incorrecta_pending?: number;
+    already_sent?: number;
+  };
+  error?: string;
+};
+
 export type InteractiveChoices = {
   month_dir: string;
   month_dir_label: string;
@@ -307,6 +387,7 @@ export type InteractiveChoices = {
   maestro_files?: string[];
   bd_candidates?: string[];
   institucion_options?: SelectOption[];
+  recepcion_preview?: RecepcionPreview;
 };
 
 export type StageParamField = {
@@ -378,7 +459,14 @@ export type ExcelAvanceRow = {
   nombre_razon?: string;
   direccion_razon?: string;
   glosa?: string;
+  /** Fila de arrastre (GLOSA con PROVISIONADO), aparte de la boleta normal del mes. */
+  provisionado?: boolean;
   estado_recepcion: string;
+  /** Si el Excel dice RECIBIDO pero la glosa XML no cuadra, refleja RECIBIDO CON ERROR. */
+  estado_recepcion_efectivo?: string;
+  glosa_xml_coincide?: boolean;
+  /** exacta | prefijo_omitido | distinta */
+  glosa_match_mode?: string;
   correo_enviado: string;
   correo_clase: string;
   recordatorios: string;
@@ -452,6 +540,30 @@ export type Step0OptionsResponse = {
   guide?: StageGuide;
   choices?: InteractiveChoices;
   outlook_health?: OutlookHealth | null;
+  arrastre_preview?: ArrastrePreview;
+};
+
+export type ArrastrePreviewRow = {
+  emplid: string;
+  name: string;
+  institucion: string;
+  location?: number | string | null;
+  rut_razon: string;
+  monto: number;
+  glosa: string;
+  email: string;
+};
+
+export type ArrastrePreview = {
+  year: number;
+  month: string;
+  lookback: Array<{ month: string; year: number; closed: boolean; has_solicitud: boolean }>;
+  previous_closed: boolean;
+  count: number;
+  total_monto: number;
+  rows: ArrastrePreviewRow[];
+  message: string;
+  error?: string;
 };
 
 export type OutlookHealth = {
@@ -506,6 +618,68 @@ export type SyncStatus = {
   details?: Record<string, unknown>;
 };
 
+export type PeriodVerifyResponse = {
+  ok: boolean;
+  year: number;
+  month: string;
+  solicitud: string;
+  sheet: string;
+  migration?: { ok: boolean; message: string } | null;
+  import_stats: Record<string, unknown>;
+  projection: { projected: number; failed: number };
+  compare: { rows_compared: number; differences: number; alignment_pct: number };
+  period_check?: {
+    ok: boolean;
+    total_boletas?: number;
+    message?: string;
+  };
+  consistency?: {
+    ok: boolean;
+    critical_count: number;
+    warning_count: number;
+    findings: Array<{ name: string; severity: string; count: number }>;
+  } | null;
+  snapshots?: Record<string, unknown> | null;
+};
+
+export type PeriodBackfillResponse = {
+  ok: boolean;
+  year: number;
+  months: string[];
+  ok_count: number;
+  total: number;
+  migration?: { ok: boolean; message: string } | null;
+  results: Array<{
+    month: string;
+    ok: boolean;
+    error?: string;
+    verify?: PeriodVerifyResponse;
+    snapshots?: Record<string, unknown>;
+  }>;
+};
+
+export type DbMigrateResponse = {
+  ok: boolean;
+  message: string;
+};
+
+export type DbConsistencyResponse = {
+  ok: boolean;
+  total_boletas: number;
+  total_xml: number;
+  total_emails: number;
+  email_coverage_pct: number;
+  critical_count: number;
+  warning_count: number;
+  findings: Array<{ name: string; severity: string; count: number }>;
+  samples?: Record<string, string[]>;
+};
+
+export type ServerRestartResponse = {
+  ok: boolean;
+  message: string;
+};
+
 export type PeriodOverviewResponse = {
   period: { year: number; month: string; status?: string | null };
   kpis: PeriodKpis;
@@ -544,6 +718,315 @@ export type InboxGapsResponse = {
   emails_scanned: number;
   gaps: InboxGapItem[];
   gap_count: number;
+};
+
+export type FinalReportRow = {
+  rut: string;
+  nombre_docente: string;
+  reg_empleo: string;
+  location: string;
+  ins: string;
+  nombre_sede: string;
+  numero_boleta: string;
+  tipo_doc: string;
+  tipo_pago: string;
+  fecha_emision: string;
+  monto_bruto: number | string;
+};
+
+export type FinalReportResponse = {
+  year: number;
+  month: string;
+  exists: boolean;
+  frozen?: boolean;
+  frozen_at?: string | null;
+  frozen_by?: string | null;
+  generated_at: string | null;
+  generated_at_source: string | null;
+  sheet_name: string | null;
+  source_file: string | null;
+  source?: string | null;
+  total_rows: number;
+  total_monto: number;
+  rows: FinalReportRow[];
+  read_error?: string | null;
+  period_status?: string | null;
+  sha256?: string | null;
+};
+
+export type PagosReportRow = Record<string, string | number | null | undefined>;
+
+export type PagosReportItem = {
+  rut: string;
+  rut_digits?: string;
+  nombre: string;
+  boleta: string;
+  empresa: string;
+  sede: string;
+  mail: string;
+  banco: string;
+  tipo_cuenta: string;
+  nro_cuenta: string;
+  descripcion: string;
+  estado_boleta: string;
+  fecha_emision: string;
+  tipo_documento: string;
+  bruto: number;
+  retencion: number;
+  liquido: number;
+  retencion_pct: number | null;
+  mail_status: "enviado" | "pendiente" | "error" | "omitido" | "otro" | string;
+  mail_status_label: string;
+  mail_raw: string;
+  docente_id?: number | null;
+  docente_nombre?: string;
+  raw?: PagosReportRow;
+};
+
+export type PagosReportResponse = {
+  year: number;
+  month: string;
+  exists: boolean;
+  frozen?: boolean;
+  frozen_at?: string | null;
+  generated_at?: string | null;
+  source?: string | null;
+  source_kind?: string | null;
+  total_rows: number;
+  rows: PagosReportRow[];
+  items?: PagosReportItem[];
+  counts?: {
+    enviado: number;
+    pendiente: number;
+    error: number;
+    omitido: number;
+    otro: number;
+  };
+  totals?: {
+    bruto: number;
+    retencion: number;
+    liquido: number;
+    rows: number;
+  };
+  read_error?: string | null;
+  period_status?: string | null;
+};
+
+export type MonthlyChecklistItem = {
+  id: string;
+  label: string;
+  status: "ok" | "warn" | "block" | string;
+  blocking: boolean;
+  message?: string;
+};
+
+export type MonthlyChecklistResponse = {
+  year: number;
+  month: string;
+  closed: boolean;
+  closed_at?: string | null;
+  closed_by?: string | null;
+  informe_frozen_at?: string | null;
+  contabilidad_status?: string | null;
+  contabilidad_validated_at?: string | null;
+  contabilidad_validated_by?: string | null;
+  contabilidad_notes?: string | null;
+  can_close: boolean;
+  blocking_count: number;
+  warn_count: number;
+  items: MonthlyChecklistItem[];
+};
+
+export type AuditEvent = {
+  id: number;
+  ts: string | null;
+  operator: string | null;
+  action: string;
+  period_year: number | null;
+  period_month: string | null;
+  entity: string | null;
+  entity_id: string | null;
+  detail: Record<string, unknown>;
+};
+
+export type MaestroValidationResponse = {
+  ok: boolean;
+  path?: string;
+  filename?: string;
+  row_count: number;
+  missing_columns: string[];
+  errors: string[];
+  warnings: string[];
+  empty_emplid?: number;
+  zero_monto?: number;
+};
+
+export type DbBackupItem = {
+  filename: string;
+  path: string;
+  size_bytes: number;
+  mtime: number;
+};
+
+export type PeriodSetupItem = {
+  id: string;
+  label: string;
+  ok: boolean;
+  blocking: boolean;
+  message?: string;
+  kind?: "maestro" | "bd" | "adjunto" | null;
+  files?: string[];
+  path?: string;
+  outlook?: Record<string, unknown>;
+};
+
+export type PeriodSetupResponse = {
+  year: number;
+  month: string;
+  month_num: number;
+  month_dir: string;
+  items: PeriodSetupItem[];
+  ready_for_step0: boolean;
+  setup_complete: boolean;
+  solicitud_exists: boolean;
+  needs_setup_panel: boolean;
+};
+
+export type MissingMonthsResponse = {
+  year: number;
+  missing: { month_num: number; month_name: string }[];
+  existing_count: number;
+};
+
+export type CreatePeriodResponse = {
+  ok: boolean;
+  created: boolean;
+  period: Period;
+  month_dir: string;
+  message: string;
+};
+
+export type PeriodUploadResponse = {
+  ok: boolean;
+  kind: string;
+  path: string;
+  filename: string;
+  size_bytes: number;
+  message: string;
+  setup: PeriodSetupResponse;
+  pagos_import?: PagosImportResult;
+};
+
+export type PagosImportSampleRow = {
+  id: string;
+  nombre: string;
+  sede: string;
+  mail: string;
+  liquido: number | string | null;
+  cuenta: string;
+};
+
+export type PagosCruzadoRow = {
+  rut: string;
+  boleta: string;
+  nombre?: string;
+};
+
+export type PagosCruzadoMismatch = {
+  rut: string;
+  boleta: string;
+  field: string;
+  expected: number | number[] | null;
+  got: number | number[] | null;
+  diff?: number | null;
+  source?: string;
+};
+
+export type PagosCruzadoWarning = {
+  rut?: string;
+  boleta?: string;
+  field?: string;
+  message: string;
+};
+
+export type PagosCruzadoResult = {
+  ok: boolean;
+  message?: string;
+  matched: number;
+  informe_rows?: number;
+  pagos_rows?: number;
+  only_in_informe: PagosCruzadoRow[];
+  only_in_pagos: PagosCruzadoRow[];
+  amount_mismatches: PagosCruzadoMismatch[];
+  pct_mismatches: PagosCruzadoMismatch[];
+  warnings: PagosCruzadoWarning[];
+  totals?: {
+    informe_bruto?: number;
+    pagos_bruto?: number;
+    bruto_diff?: number;
+    informe_liquido?: number;
+    pagos_liquido?: number;
+    liquido_diff?: number;
+    informe_count?: number;
+    pagos_count?: number;
+    count_diff?: number;
+  };
+  errors_count: number;
+  warnings_count: number;
+};
+
+export type PagosImportResult = {
+  ok: boolean;
+  year: number;
+  month: string;
+  source?: string;
+  solicitud?: string;
+  rows: number;
+  missing_mail: number;
+  missing_sede?: number;
+  missing_liquido: number;
+  written?: boolean;
+  message?: string;
+  sample?: PagosImportSampleRow[];
+  cruzado?: PagosCruzadoResult;
+};
+
+export type PagosPreviewCandidate = {
+  index: number;
+  nombre: string;
+  mail: string;
+  sede: string;
+  ubicacion?: string;
+  id: string;
+  boleta: string;
+  descripcion?: string;
+  bruto?: number;
+  bruto_txt?: string;
+  retencion?: number;
+  retencion_txt?: string;
+  pct_retencion?: number | null;
+  monto: number;
+  monto_txt: string;
+  banco: string;
+  cuenta: string;
+  forma_pago: string;
+  tipo_documento?: string;
+  fecha_pago?: string;
+  subject: string;
+  html_body: string;
+  idempotency_key: string;
+};
+
+export type PagosPreviewResponse = {
+  ok: boolean;
+  year: number;
+  month: string;
+  fecha_pago: string;
+  total_rows: number;
+  ready: number;
+  skipped_no_mail: number;
+  skipped_already: number;
+  candidates: PagosPreviewCandidate[];
 };
 
 export type JobArtifact = {

@@ -15,10 +15,11 @@ import uuid
 import json
 from datetime import datetime, UTC
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Path, Query, Request
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Path, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
 
 from api import operations, schemas, security, services
 from api.interactive.router import router as interactive_router
@@ -68,6 +69,11 @@ def _configure_access_logger() -> None:
 
 
 _configure_access_logger()
+
+
+@app.on_event("startup")
+def _record_startup_time() -> None:
+    app.state.started_at = datetime.now(UTC).isoformat()
 
 
 def _build_error_payload(
@@ -159,12 +165,20 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     request_id = getattr(request.state, "request_id", None)
+    errs = exc.errors()
+    # Mensaje corto legible (el detalle completo va en details.errors).
+    parts: list[str] = []
+    for err in errs[:3]:
+        loc = ".".join(str(x) for x in err.get("loc", ()) if x not in ("body", "query", "path"))
+        msg = str(err.get("msg") or "inválido")
+        parts.append(f"{loc}: {msg}" if loc else msg)
+    summary = "; ".join(parts) if parts else "Parámetros de entrada inválidos"
     return JSONResponse(
         status_code=422,
         content=_build_error_payload(
             "VALIDATION_ERROR",
-            "Parametros de entrada invalidos",
-            {"errors": exc.errors()},
+            summary,
+            {"errors": errs},
             request_id=request_id,
         ),
     )
@@ -172,8 +186,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.get("/health", response_model=schemas.HealthResponse)
 def health() -> dict:
     from api.spa import frontend_dist_ready
+    import app_capabilities
+    from settings import get_bool_setting
 
-    return {"status": "ok", "ui": "embedded" if frontend_dist_ready() else "api_only"}
+    return {
+        "status": "ok",
+        "ui": "embedded" if frontend_dist_ready() else "api_only",
+        "capabilities_version": app_capabilities.CAPABILITIES_VERSION,
+        "capabilities": dict(app_capabilities.CAPABILITIES),
+        "read_from_db": get_bool_setting("BH_READ_FROM_DB", True),
+        "started_at": getattr(app.state, "started_at", None),
+    }
 
 
 @app.get("/periods", response_model=list[schemas.PeriodItem])
@@ -373,6 +396,194 @@ def docente_emails(
         )
 
 
+@app.post("/docentes", response_model=schemas.DocenteActionResponse)
+def docente_create(
+    body: schemas.DocenteUpsertRequest = Body(...),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    with SessionLocal() as session:
+        result = services.create_docente(session, body.model_dump())
+    try:
+        from db import audit
+
+        audit.record_event(
+            action="docente.create",
+            operator=operator,
+            entity="docente",
+            entity_id=str((result.get("docente") or {}).get("id") or ""),
+            detail={"rut": getattr(body, "rut", None)},
+        )
+    except Exception:
+        pass
+    return result
+
+
+@app.put("/docentes/{docente_id}", response_model=schemas.DocenteActionResponse)
+def docente_update(
+    docente_id: int = Path(..., ge=1),
+    body: schemas.DocenteUpsertRequest = Body(...),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    with SessionLocal() as session:
+        result = services.update_docente(session, docente_id, body.model_dump())
+    try:
+        from db import audit
+
+        audit.record_event(
+            action="docente.update",
+            operator=operator,
+            entity="docente",
+            entity_id=str(docente_id),
+        )
+    except Exception:
+        pass
+    return result
+
+
+@app.post("/docentes/{docente_id}/disable", response_model=schemas.DocenteActionResponse)
+def docente_disable(
+    docente_id: int = Path(..., ge=1),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    with SessionLocal() as session:
+        result = services.disable_docente(session, docente_id)
+    try:
+        from db import audit
+
+        audit.record_event(
+            action="docente.disable",
+            operator=operator,
+            entity="docente",
+            entity_id=str(docente_id),
+        )
+    except Exception:
+        pass
+    return result
+
+
+@app.delete("/docentes/{docente_id}", response_model=schemas.DocenteActionResponse)
+def docente_delete(
+    docente_id: int = Path(..., ge=1),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    with SessionLocal() as session:
+        result = services.delete_docente(session, docente_id)
+    try:
+        from db import audit
+
+        audit.record_event(
+            action="docente.delete",
+            operator=operator,
+            entity="docente",
+            entity_id=str(docente_id),
+        )
+    except Exception:
+        pass
+    return result
+
+
+@app.get("/directores", response_model=schemas.DirectorListResponse)
+def directores_list(
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    with SessionLocal() as session:
+        return services.list_directores(session)
+
+
+@app.post("/directores", response_model=schemas.DirectorActionResponse)
+def director_create(
+    body: schemas.DirectorUpsertRequest = Body(...),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    with SessionLocal() as session:
+        result = services.upsert_director(session, body.model_dump())
+    try:
+        from db import audit
+
+        audit.record_event(
+            action="director.create",
+            operator=operator,
+            entity="director",
+            entity_id=str((result.get("director") or {}).get("id") or ""),
+            detail={"email": body.email, "sedes": body.sedes},
+        )
+    except Exception:
+        pass
+    return result
+
+
+@app.put("/directores/{director_id}", response_model=schemas.DirectorActionResponse)
+def director_update(
+    director_id: int = Path(..., ge=1),
+    body: schemas.DirectorUpsertRequest = Body(...),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    with SessionLocal() as session:
+        result = services.upsert_director(session, body.model_dump(), director_id=director_id)
+    try:
+        from db import audit
+
+        audit.record_event(
+            action="director.update",
+            operator=operator,
+            entity="director",
+            entity_id=str(director_id),
+            detail={"email": body.email, "sedes": body.sedes},
+        )
+    except Exception:
+        pass
+    return result
+
+
+@app.delete("/directores/{director_id}")
+def director_delete(
+    director_id: int = Path(..., ge=1),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    with SessionLocal() as session:
+        result = services.delete_director(session, director_id)
+    try:
+        from db import audit
+
+        audit.record_event(
+            action="director.delete",
+            operator=operator,
+            entity="director",
+            entity_id=str(director_id),
+        )
+    except Exception:
+        pass
+    return result
+
+
+@app.post("/directores/seed-from-excel", response_model=schemas.DirectorSeedResponse)
+def directores_seed(
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    with SessionLocal() as session:
+        result = services.seed_directores(session)
+    try:
+        from db import audit
+
+        audit.record_event(
+            action="director.seed",
+            operator=operator,
+            entity="director",
+            detail=result,
+        )
+    except Exception:
+        pass
+    return result
+
+
 @app.get("/operations/stages")
 def operations_stages_list(_: None = Depends(security.require_api_key)) -> dict:
     return operations.list_stages()
@@ -397,6 +608,111 @@ def operations_period_excel_avance(
     return operations.excel_avance(year, month, row_limit=row_limit)
 
 
+@app.get("/operations/period/final-report")
+def operations_period_final_report(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return operations.final_report(year, month)
+
+
+@app.get("/operations/period/pagos-report")
+def operations_period_pagos_report(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return operations.pagos_report(year, month)
+
+
+@app.post("/operations/period/backfill")
+def operations_period_backfill(
+    body: dict = Body(...),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Sincroniza uno o todos los meses de un año (Excel → DB + snapshots)."""
+    try:
+        year = int(body.get("year"))
+        month = body.get("month")
+        month_s = str(month).strip() if month else None
+        if year < 2000 or year > 2100:
+            raise ValueError("year inválido")
+        run_migrations = bool(body.get("run_migrations", True))
+        return operations.backfill_periods(
+            year=year,
+            month=month_s or None,
+            run_migrations=run_migrations,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"No se pudo hacer backfill: {exc}")
+
+
+@app.get("/operations/period/monthly-checklist")
+def operations_period_monthly_checklist(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return operations.monthly_checklist(year, month)
+
+
+@app.post("/operations/period/close")
+def operations_period_close(
+    body: dict = Body(...),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    try:
+        year = int(body.get("year"))
+        month = str(body.get("month") or "").strip()
+        force = bool(body.get("force", False))
+        return operations.close_period(year, month, operator=operator or body.get("operator"), force=force)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/operations/period/reopen")
+def operations_period_reopen(
+    body: dict = Body(...),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    try:
+        year = int(body.get("year"))
+        month = str(body.get("month") or "").strip()
+        return operations.reopen_period(year, month, operator=operator or body.get("operator"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/operations/period/contabilidad-validate")
+def operations_period_contabilidad_validate(
+    body: dict = Body(...),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    """Marca validación de Contabilidad sobre el informe (ok | con_observaciones | pendiente)."""
+    try:
+        year = int(body.get("year"))
+        month = str(body.get("month") or "").strip()
+        status = str(body.get("status") or "").strip()
+        notes = body.get("notes")
+        return operations.mark_contabilidad(
+            year,
+            month,
+            status=status,
+            operator=operator or body.get("operator"),
+            notes=str(notes) if notes is not None else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 @app.get("/operations/period/inbox-gaps")
 def operations_period_inbox_gaps(
     year: int = Query(..., ge=2000, le=2100),
@@ -417,6 +733,352 @@ def operations_period_inbox_gaps(
         raise HTTPException(status_code=422, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.post("/operations/period/verify")
+def operations_period_verify(
+    body: dict = Body(...),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Verifica período completo desde la web (migración + import + proyección + comparación)."""
+    try:
+        year = int(body.get("year"))
+        month = str(body.get("month") or "").strip()
+        if year < 2000 or year > 2100 or not month:
+            raise ValueError("Parámetros year/month inválidos.")
+        run_migrations = bool(body.get("run_migrations", True))
+        run_consistency = bool(body.get("run_consistency", True))
+        consistency_limit = int(body.get("consistency_limit", 20))
+        return operations.period_verify(
+            year,
+            month,
+            run_migrations=run_migrations,
+            run_consistency=run_consistency,
+            consistency_limit=consistency_limit,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"No se pudo verificar período: {exc}")
+
+
+@app.post("/operations/db/migrate")
+def operations_db_migrate(_: None = Depends(security.require_api_key)) -> dict:
+    """Aplica migraciones Alembic pendientes."""
+    try:
+        return operations.db_migrate()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"No se pudo migrar la base de datos: {exc}")
+
+
+@app.post("/operations/db/consistency-check")
+def operations_db_consistency_check(
+    body: dict = Body(default_factory=dict),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Chequeo global de integridad del dominio."""
+    try:
+        limit = int(body.get("limit", 20))
+        return operations.db_consistency_check(limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"No se pudo revisar consistencia: {exc}")
+
+
+@app.post("/operations/db/backup")
+def operations_db_backup(
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+) -> dict:
+    try:
+        return operations.create_db_backup(operator=operator)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"No se pudo crear backup: {exc}")
+
+
+@app.get("/operations/db/backups")
+def operations_db_backups_list(_: None = Depends(security.require_api_key)) -> dict:
+    return operations.list_db_backups()
+
+
+@app.get("/audit/events")
+def audit_events_list(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    month: str | None = Query(default=None, min_length=3, max_length=20),
+    limit: int = Query(default=100, ge=1, le=500),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    return operations.list_audit_events(year=year, month=month, limit=limit)
+
+
+@app.get("/operations/period/validate-maestro")
+def operations_validate_maestro(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    filename: str | None = Query(default=None),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    import config
+    import os
+
+    month_dir = os.path.join(config.RAIZ, str(year), str(month).strip().capitalize())
+    if filename:
+        path = os.path.join(month_dir, os.path.basename(filename))
+    else:
+        files = [
+            f
+            for f in (os.listdir(month_dir) if os.path.isdir(month_dir) else [])
+            if f.lower().endswith(".xlsx") and f.casefold() != "solicitud.xlsx"
+        ]
+        if not files:
+            raise HTTPException(status_code=404, detail="No hay maestro en la carpeta del mes.")
+        path = os.path.join(month_dir, files[0])
+    return operations.validate_maestro_file(path)
+
+
+@app.post("/operations/server/restart")
+def operations_server_restart(
+    body: dict = Body(default_factory=dict),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Reinicia el servidor BH (solo Windows, misma máquina)."""
+    try:
+        port = int(body.get("port", 8000))
+        return operations.server_restart(port=port)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=501, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"No se pudo reiniciar el servidor: {exc}")
+
+
+@app.get("/operations/periods/missing")
+def operations_periods_missing(
+    year: int = Query(..., ge=2000, le=2100),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Meses del año que aún no tienen carpeta en disco."""
+    import period_bootstrap
+
+    try:
+        return period_bootstrap.list_missing_months(year)
+    except period_bootstrap.PeriodBootstrapError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@app.post("/operations/periods")
+def operations_create_period(
+    body: schemas.CreatePeriodRequest = Body(...),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Crea carpeta RAIZ/{año}/{Mes} y registra el período abierto en BD."""
+    import period_bootstrap
+
+    try:
+        return period_bootstrap.create_period(body.year, body.month_name)
+    except period_bootstrap.PeriodBootstrapError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@app.get("/operations/period/setup")
+def operations_period_setup(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Checklist de preparación del mes (maestro, BD, PDF, Outlook)."""
+    import period_bootstrap
+
+    try:
+        return period_bootstrap.period_setup(year, month)
+    except period_bootstrap.PeriodBootstrapError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@app.post("/operations/period/upload")
+async def operations_period_upload(
+    year: int = Form(..., ge=2000, le=2100),
+    month: str = Form(..., min_length=3, max_length=20),
+    kind: str = Form(...),
+    file: UploadFile = File(...),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Sube maestro, BD-DOCENTES, PDF de ejemplo o Excel de pagos Contabilidad (kind=pagos)."""
+    import period_bootstrap
+
+    data = await file.read()
+    try:
+        return period_bootstrap.upload_period_file(
+            year,
+            month,
+            kind,
+            filename=file.filename or "upload.bin",
+            data=data,
+        )
+    except period_bootstrap.PeriodBootstrapError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@app.post("/operations/stages/7/import-pagos")
+async def operations_stage7_import_pagos(
+    year: int = Form(..., ge=2000, le=2100),
+    month: str = Form(..., min_length=3, max_length=20),
+    paste: str | None = Form(None),
+    file: UploadFile | None = File(None),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Importa tabla Contabilidad (pegar HTML/TSV/CSV o subir archivo) → hoja Pagos + MAIL/SEDE."""
+    import pagos_import
+    import period_bootstrap
+
+    paste_txt = (paste or "").strip()
+    file_bytes = await file.read() if file is not None else b""
+    filename = (file.filename if file is not None else "") or ""
+
+    if not paste_txt and not file_bytes:
+        raise HTTPException(
+            status_code=422,
+            detail="Pegá la tabla del correo de Contabilidad o subí un .csv/.xlsx.",
+        )
+
+    try:
+        if file_bytes:
+            # Reutiliza bootstrap: guarda y escribe Pagos
+            return period_bootstrap.upload_period_file(
+                year,
+                month,
+                "pagos",
+                filename=filename or "Contabilidad_Pagos.csv",
+                data=file_bytes,
+            )
+        result = pagos_import.import_pagos_from_paste(
+            year=year,
+            month=month,
+            paste=paste_txt,
+            write=True,
+        )
+        return result
+    except period_bootstrap.PeriodBootstrapError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"No se pudo importar pagos: {exc}") from exc
+
+
+@app.post("/operations/stages/7/preview-pagos")
+def operations_stage7_preview_pagos(
+    body: schemas.PagosPreviewRequest = Body(...),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Previsualiza correos de pago desde la hoja Pagos (sin enviar)."""
+    import pagos_import
+
+    try:
+        return pagos_import.preview_pagos_emails(
+            year=body.year,
+            month=body.month,
+            fecha_pago=body.fecha_pago,
+            force_resend=body.force_resend,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"No se pudo previsualizar: {exc}") from exc
+
+
+@app.post("/operations/local/open")
+def operations_local_open(
+    body: schemas.LocalOpenRequest = Body(...),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    """Abre Solicitud.xlsx (u otro archivo) o la carpeta del mes en este equipo."""
+    import local_open
+
+    try:
+        target = (body.target or "file").strip().lower()
+        if target == "folder":
+            path = local_open.resolve_period_dir(body.year, body.month)
+            return local_open.open_local_folder(path)
+        if body.stage_num is not None:
+            return local_open.open_stage_primary(body.year, body.month, body.stage_num)
+        name = (body.filename or "Solicitud.xlsx").strip() or "Solicitud.xlsx"
+        if "/" in name or "\\" in name or ".." in name:
+            raise ValueError("Nombre de archivo inválido.")
+        path = local_open.resolve_period_file(body.year, body.month, name=name)
+        return local_open.open_local_file(path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/operations/period/file")
+def operations_period_file(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    filename: str = Query("Solicitud.xlsx", min_length=1, max_length=200),
+    _: None = Depends(security.require_api_key),
+):
+    """Descarga un archivo del mes (p. ej. Solicitud.xlsx con el informe)."""
+    import local_open
+
+    try:
+        if "/" in filename or "\\" in filename or ".." in filename:
+            raise ValueError("Nombre de archivo inválido.")
+        path = local_open.resolve_period_file(year, month, name=filename)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return FileResponse(
+        path,
+        filename=os.path.basename(path),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.get("/operations/period/export-db")
+def operations_period_export_db(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
+):
+    """Exporta snapshot Excel del período generado desde PostgreSQL."""
+    try:
+        filename, content = operations.export_period_snapshot_excel(year, month)
+        from db import audit
+
+        audit.record_event(
+            action="period.export_solicitud",
+            operator=operator,
+            period_year=year,
+            period_month=month,
+            entity="solicitud",
+            detail={"filename": filename},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/operations/period/sync-status")
@@ -447,8 +1109,11 @@ def operations_stage_start(
     stage_num: int = Path(..., ge=0, le=10),
     body: schemas.StageStartRequest = Body(...),
     _: None = Depends(security.require_api_key),
+    operator: str | None = Depends(security.get_operator_name),
 ) -> dict:
     payload = body.model_dump(exclude_none=True)
+    if operator:
+        payload["operator"] = operator
     try:
         return operations.start_stage_job(stage_num, payload)
     except operations.StageNotEnabledError as exc:
@@ -468,6 +1133,18 @@ def step0_options(
     _: None = Depends(security.require_api_key),
 ) -> dict:
     return operations.list_stage_options(0, year, month)
+
+
+@app.get("/operations/step0/arrastre-preview")
+def step0_arrastre_preview(
+    year: int = Query(..., ge=2000, le=2100),
+    month: str = Query(..., min_length=3, max_length=20, pattern=r"^[A-Za-zÁÉÍÓÚáéíóúÑñ]+$"),
+    _: None = Depends(security.require_api_key),
+) -> dict:
+    try:
+        return operations.preview_step0_arrastre(year, month)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @app.post("/operations/step0/start")

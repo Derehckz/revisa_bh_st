@@ -16,6 +16,8 @@ type Props = {
   apiKey: string;
   onJobUpdate: (job: OperationJob) => void;
   onFinished: () => void;
+  /** Aviso del checklist (p. ej. informe aún no generado). */
+  checklistWarn?: string | null;
 };
 
 const STEPS_BATCH = [2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
@@ -39,6 +41,7 @@ export function ClosePeriodPanel({
   apiKey,
   onJobUpdate,
   onFinished,
+  checklistWarn,
 }: Props) {
   const { push } = useToast();
   const { confirmBeforeOperation } = usePeriodOperationGuard();
@@ -118,7 +121,7 @@ export function ClosePeriodPanel({
           return;
         }
       }
-      push("Cierre de período completado.", "success");
+      push("Ejecución de pendientes completada (2–10).", "success");
       onFinished();
     } catch (e) {
       push(mapApiErrorMessage(e as never), "error");
@@ -131,13 +134,19 @@ export function ClosePeriodPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Cierre asistido (pasos 2–10)</CardTitle>
+        <CardTitle>Encadenar pasos 2–10 (no cierra el mes)</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
-          Encadena los mismos jobs que <code className="text-xs">herramientas/cerrar_periodo.py</code>, uno tras otro.
-          Solo un job activo por período. En meses ya cerrados (ej. Abril) usa solo simulación o omite correos.
+          Ejecuta en cadena los pasos pendientes 2→10. <strong>Esto no cierra el período</strong>:
+          el cierre formal está en el checklist mensual de la pestaña Cierre (congela informe y
+          bloquea ediciones).
         </p>
+        {checklistWarn ? (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-800">
+            {checklistWarn}
+          </p>
+        ) : null}
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="space-y-1">
             <span className="text-xs text-muted-foreground">Fecha inicio (paso 2)</span>
@@ -185,11 +194,11 @@ export function ClosePeriodPanel({
         </label>
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={step8DryRun} onChange={(e) => setStep8DryRun(e.target.checked)} disabled={running} />
-          Paso 8 en simulación (dry-run)
+          Paso 8: solo simular (no crea carpetas IP/CFT)
         </label>
         <label className="flex items-center gap-2 font-medium text-red-800">
           <input type="checkbox" checked={confirmClose} onChange={(e) => setConfirmClose(e.target.checked)} disabled={running} />
-          Confirmo ejecutar la secuencia de cierre en {selectedPeriod?.month_name} {selectedPeriod?.year}
+          Confirmo encadenar pasos 2→10 en {selectedPeriod?.month_name} {selectedPeriod?.year} (sin cerrar el mes)
         </label>
         <Button disabled={disabled || running || !confirmClose || !selectedPeriod} onClick={() => void runClose()}>
           {running ? (
@@ -198,7 +207,7 @@ export function ClosePeriodPanel({
               {progressLabel || "Ejecutando…"}
             </span>
           ) : (
-            "Iniciar cierre 2→10"
+            "Encadenar pasos 2→10"
           )}
         </Button>
       </CardContent>

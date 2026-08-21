@@ -19,6 +19,7 @@ _API_PREFIXES = (
     "/runs",
     "/stats",
     "/docentes",
+    "/directores",
     "/operations",
     "/docs",
     "/redoc",

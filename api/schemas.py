@@ -7,6 +7,10 @@ from pydantic import BaseModel
 class HealthResponse(BaseModel):
     status: str
     ui: str | None = None  # embedded | api_only
+    capabilities_version: int | None = None
+    capabilities: dict[str, bool] | None = None
+    read_from_db: bool | None = None
+    started_at: str | None = None
 
 
 class ErrorResponse(BaseModel):
@@ -76,6 +80,7 @@ class BoletaListItem(BaseModel):
     glosa: str | None = None
     monto_bruto: float | None
     archivo_xml: str | None
+    has_xml_file: bool | None = None
 
 
 class BoletaListResponse(BaseModel):
@@ -189,6 +194,7 @@ class YearPeriodStats(BaseModel):
     boletas: int
     xml: int
     emails: int
+    monto_total: float = 0.0
     xml_coverage_pct: float
     email_coverage_pct: float
 
@@ -233,6 +239,7 @@ class DocenteItem(BaseModel):
     sede: str | None
     email_personal: str | None
     email_dp: str | None
+    activo: str | None = None
     boletas_count: int
     monto_total: float
 
@@ -281,6 +288,55 @@ class DocenteEmailsResponse(BaseModel):
     data: list[EmailItem]
 
 
+class DocenteUpsertRequest(BaseModel):
+    rut: str
+    rut_sin_dv: str | None = None
+    nombre_completo: str
+    email_personal: str | None = None
+    email_dp: str | None = None
+    telefono: str | None = None
+    direccion: str | None = None
+    sede: str | None = None
+    activo: str | None = "true"
+
+
+class DocenteActionResponse(BaseModel):
+    ok: bool
+    docente: DocenteItem
+
+
+class DirectorSedeItem(BaseModel):
+    id: int
+    nombre: str | None
+    email: str
+    activo: str | None = "true"
+    sedes: list[str]
+
+
+class DirectorListResponse(BaseModel):
+    data: list[DirectorSedeItem]
+
+
+class DirectorUpsertRequest(BaseModel):
+    nombre: str | None = None
+    email: str
+    sedes: list[str] = []
+    activo: str | None = "true"
+
+
+class DirectorActionResponse(BaseModel):
+    ok: bool
+    director: DirectorSedeItem
+    propagated: dict | None = None
+
+
+class DirectorSeedResponse(BaseModel):
+    ok: bool
+    created: int
+    sedes: int
+    mapping: int
+
+
 class StageStartRequest(BaseModel):
     year: int
     month: str
@@ -308,3 +364,26 @@ class StageStartRequest(BaseModel):
     # Paso 10
     institucion: str | None = None
     force: bool | None = None
+
+
+class PagosPreviewRequest(BaseModel):
+    year: int
+    month: str
+    fecha_pago: str
+    force_resend: bool = False
+
+
+class LocalOpenRequest(BaseModel):
+    """Abre un archivo o carpeta del período. Solo rutas bajo BH_RAIZ."""
+
+    year: int
+    month: str
+    stage_num: int | None = None
+    filename: str | None = "Solicitud.xlsx"
+    # file (default) | folder — abre la carpeta del mes en el Explorador
+    target: str | None = "file"
+
+
+class CreatePeriodRequest(BaseModel):
+    year: int
+    month_name: str

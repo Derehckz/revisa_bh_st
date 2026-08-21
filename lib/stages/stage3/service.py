@@ -12,6 +12,11 @@ import config
 import schema_validator
 import utils
 from db import boleta_repository, docente_repository, file_repository
+from db.state_projection import (
+    classify_mail_recepcion_status,
+    classify_recepcion_status,
+    classify_xml_status,
+)
 from db.key_builder import build_boleta_key
 from interaction.exceptions import SessionCancelled
 from interaction.port import InteractionPort
@@ -147,6 +152,19 @@ class Stage3Service:
             ui.log("Sesión cancelada.", level="warning")
             return {"ok": False, "cancelled": True}
 
+        from stages.recepcion_sync import sync_correo_recepcion_after_revision
+
+        sync_stats = sync_correo_recepcion_after_revision(
+            df, df_actualizado, año=año, mes=mes
+        )
+        if sync_stats["cleared_markers"]:
+            ui.log(
+                f"Recepción: se limpiaron {sync_stats['cleared_markers']} marca(s) de correo "
+                "porque el estado ya no coincide con el tipo enviado.",
+                level="info",
+            )
+        stats.update(sync_stats)
+
         periodo_id = None
         if mes_num > 0:
             periodo_id = file_repository.get_or_create_periodo(
@@ -164,6 +182,9 @@ class Stage3Service:
                     if obs_recepcion
                     else f"{prefijo}{descartes}"
                 )
+            recepcion_status, reason, glosa_mode = classify_recepcion_status(fila.to_dict())
+            xml_status = classify_xml_status(fila.to_dict())
+            mail_recepcion_status = classify_mail_recepcion_status(fila.to_dict())
             boleta_repository.upsert_boleta_recepcion(
                 periodo_id=periodo_id,
                 boleta_key=build_boleta_key(fila.to_dict()),
@@ -184,6 +205,15 @@ class Stage3Service:
                 monto_bruto=fila.get("CUS_TOT_HON", None),
                 archivo_xml=str(fila.get("archivo_xml", "")).strip()
                 if "archivo_xml" in df_actualizado.columns
+                else None,
+                recepcion_status=recepcion_status,
+                xml_status=xml_status,
+                mail_recepcion_status=mail_recepcion_status,
+                glosa_match_mode=glosa_mode,
+                effective_status_reason=reason,
+                solicitud_row=fila.to_dict(),
+                empl_rcd=str(fila.get("EMPL_RCD", "")).strip()
+                if "EMPL_RCD" in df_actualizado.columns
                 else None,
             )
 

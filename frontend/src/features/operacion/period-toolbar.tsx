@@ -1,50 +1,84 @@
-import type { Period, PeriodKpis, SyncStatus } from "@/shared/api/types";
+import { useEffect, useMemo, useState } from "react";
+import { FolderPlus } from "lucide-react";
+import type { Period, PeriodKpis } from "@/shared/api/types";
+import { useCreatePeriod, useMissingMonths } from "@/shared/api/queries";
 import { periodSelectLabel } from "@/shared/lib/period-operation-guard";
 import { Button } from "@/shared/ui/button";
 import { Select } from "@/shared/ui/select";
+import { mapApiErrorMessage, type ApiError } from "@/shared/api/client";
+import { PeriodExportButton } from "./period-db-panel";
 
 type Props = {
   periods: Period[];
   selectedPeriod: Period | undefined;
   selectedPeriodKey: string;
   onPeriodChange: (key: string) => void;
+  onPeriodCreated?: (key: string) => void;
   kpis?: PeriodKpis;
   runningLabel: string | null;
-  syncStatus?: SyncStatus;
-  onResync?: () => void;
-  resyncPending?: boolean;
+  baseUrl: string;
+  apiKey: string;
+  onExportPeriod?: () => void;
+  exportPending?: boolean;
 };
-
-function SyncStatusBadge({ syncStatus }: { syncStatus: SyncStatus }) {
-  if (syncStatus.status === "ok") return null;
-  const isDegraded = syncStatus.status === "degraded";
-  return (
-    <p
-      title={syncStatus.message}
-      className={
-        "w-full rounded-md border px-3 py-2 text-xs leading-snug " +
-        (isDegraded
-          ? "border-warning/30 bg-warning/10 text-warning"
-          : "border-border bg-muted text-muted-foreground")
-      }
-    >
-      {isDegraded ? "Excel y base de datos desalineados" : "Sync Excel/BD sin datos"}
-      <span className="opacity-80"> — {syncStatus.message}</span>
-    </p>
-  );
-}
 
 export function PeriodToolbar({
   periods,
   selectedPeriod,
   selectedPeriodKey,
   onPeriodChange,
+  onPeriodCreated,
   kpis,
   runningLabel,
-  syncStatus,
-  onResync,
-  resyncPending,
+  baseUrl,
+  apiKey,
+  onExportPeriod,
+  exportPending,
 }: Props) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const defaultYear = selectedPeriod?.year ?? new Date().getFullYear();
+  const [year, setYear] = useState(defaultYear);
+  const [monthName, setMonthName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const missing = useMissingMonths(baseUrl, apiKey, year, dialogOpen);
+  const createPeriod = useCreatePeriod(baseUrl, apiKey);
+
+  useEffect(() => {
+    if (!dialogOpen) return;
+    setYear(selectedPeriod?.year ?? new Date().getFullYear());
+    setError(null);
+  }, [dialogOpen, selectedPeriod?.year]);
+
+  const missingMonths = missing.data?.missing ?? [];
+  useEffect(() => {
+    if (!dialogOpen) return;
+    if (missingMonths.length && !missingMonths.some((m) => m.month_name === monthName)) {
+      setMonthName(missingMonths[0].month_name);
+    }
+  }, [dialogOpen, missingMonths, monthName]);
+
+  const yearOptions = useMemo(() => {
+    const years = new Set<number>([defaultYear, new Date().getFullYear()]);
+    for (const p of periods) years.add(p.year);
+    years.add(defaultYear + 1);
+    return Array.from(years).sort((a, b) => b - a);
+  }, [periods, defaultYear]);
+
+  async function handleCreate() {
+    if (!monthName) return;
+    setError(null);
+    try {
+      const res = await createPeriod.mutateAsync({ year, month_name: monthName });
+      const key = `${res.period.year}-${res.period.month_name}`;
+      onPeriodCreated?.(key);
+      onPeriodChange(key);
+      setDialogOpen(false);
+    } catch (err) {
+      setError(mapApiErrorMessage(err as ApiError) || "No se pudo crear el mes");
+    }
+  }
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-3">
@@ -62,27 +96,34 @@ export function PeriodToolbar({
           </Select>
         </label>
 
-        {kpis?.solicitud_exists && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          onClick={() => setDialogOpen(true)}
+          disabled={Boolean(runningLabel)}
+        >
+          <FolderPlus size={14} className="mr-1.5" />
+          Nuevo mes
+        </Button>
+
+        {(kpis?.total_rows ?? 0) > 0 && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.8125rem] text-muted-foreground">
-            <Metric label="Recibidos" value={kpis.recibidos} />
-            <Metric label="Pendientes" value={kpis.no_recibidos} />
-            <Metric label="XML" value={kpis.xml_files_in_month} />
+            <Metric label="Solicitudes" value={kpis?.total_rows ?? 0} />
+            <Metric label="Recibidos" value={kpis?.recibidos ?? 0} />
+            <Metric label="Pendientes" value={kpis?.no_recibidos ?? 0} />
+            <Metric label="XML" value={kpis?.xml_files_in_month ?? 0} />
           </div>
         )}
 
-        {onResync && selectedPeriod && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="ml-auto shrink-0"
-            disabled={resyncPending || Boolean(runningLabel)}
-            onClick={onResync}
-            title="Recalcula alineación Excel↔PostgreSQL"
-          >
-            {resyncPending ? "Sincronizando…" : "Re-sync"}
-          </Button>
-        )}
+        <PeriodExportButton
+          year={selectedPeriod?.year}
+          month={selectedPeriod?.month_name}
+          onDownload={onExportPeriod}
+          downloadPending={exportPending}
+          disabled={Boolean(runningLabel) || (kpis?.total_rows ?? 0) === 0}
+        />
       </div>
 
       {runningLabel && (
@@ -90,7 +131,71 @@ export function PeriodToolbar({
           Hay una tarea en curso — espera a que termine.
         </p>
       )}
-      {syncStatus && <SyncStatusBadge syncStatus={syncStatus} />}
+
+      {dialogOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-month-title"
+        >
+          <div className="w-full max-w-md rounded-xl border border-border bg-card/95 p-5 shadow-elevated backdrop-blur-md">
+            <h2 id="new-month-title" className="text-[1.0625rem] font-semibold tracking-tight">
+              Crear mes de trabajo
+            </h2>
+            <p className="mt-2 text-sm leading-snug text-muted-foreground">
+              Crea la carpeta del período (ej. 2026/Agosto). Luego sube el maestro y la base de
+              docentes en el panel de preparación.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="text-sm">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">Año</span>
+                <Select value={String(year)} onChange={(e) => setYear(Number(e.target.value))}>
+                  {yearOptions.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">Mes</span>
+                <Select
+                  value={monthName}
+                  onChange={(e) => setMonthName(e.target.value)}
+                  disabled={missing.isLoading || missingMonths.length === 0}
+                >
+                  {missingMonths.length === 0 ? (
+                    <option value="">Sin meses pendientes</option>
+                  ) : (
+                    missingMonths.map((m) => (
+                      <option key={m.month_num} value={m.month_name}>
+                        {m.month_name}
+                      </option>
+                    ))
+                  )}
+                </Select>
+              </label>
+            </div>
+            {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+            {missing.isError && (
+              <p className="mt-3 text-sm text-danger">No se pudo listar meses faltantes.</p>
+            )}
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleCreate()}
+                disabled={!monthName || createPeriod.isPending || missingMonths.length === 0}
+              >
+                {createPeriod.isPending ? "Creando…" : "Crear mes"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

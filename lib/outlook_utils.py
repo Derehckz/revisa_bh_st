@@ -15,6 +15,21 @@ utils.asegurar_utf8_salida()
 CancelCheck = Callable[[], bool]
 
 
+def _ensure_com_initialized() -> None:
+    """Obligatorio en hilos (ThreadPool de sesiones interactivas).
+
+    Sin esto, Dispatch('Outlook.Application') falla con:
+    (-2147221008, 'No se ha llamado a CoInitialize.', ...)
+    """
+    try:
+        import pythoncom
+
+        pythoncom.CoInitialize()
+    except Exception as e:
+        # Ya inicializado en este hilo u otro error no bloqueante.
+        logging.debug("CoInitialize: %s", e)
+
+
 def _outlook_process_running() -> bool:
     try:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -62,7 +77,7 @@ def asegurar_outlook_abierto(*, log: Callable[[str], None] | None = None) -> Non
     for path in _outlook_exe_candidates():
         if os.path.isfile(path):
             try:
-                subprocess.Popen([path], close_fds=True)
+                subprocess.Popen([path], close_fds=False)
                 launched = True
                 break
             except OSError as e:
@@ -73,18 +88,20 @@ def asegurar_outlook_abierto(*, log: Callable[[str], None] | None = None) -> Non
             # Fallback: protocolo / PATH
             os.startfile("outlook")  # type: ignore[attr-defined]
             launched = True
-        except OSError:
+        except OSError as e:
+            logging.warning("os.startfile(outlook) falló: %s", e)
             try:
                 subprocess.Popen(
                     ["cmd", "/c", "start", "", "outlook.exe"],
                     shell=False,
+                    close_fds=False,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
                 launched = True
-            except OSError as e:
+            except OSError as e2:
                 raise RuntimeError(
                     "No se pudo abrir Outlook automáticamente. Ábrelo manualmente e inténtalo de nuevo."
-                ) from e
+                ) from e2
 
     if launched:
         _log("Esperando a que Outlook termine de iniciar…")
@@ -106,6 +123,7 @@ def check_outlook_health(*, probe_com: bool = True) -> dict:
         try:
             import win32com.client
 
+            _ensure_com_initialized()
             app = win32com.client.Dispatch("Outlook.Application")
             _ = app.GetNamespace("MAPI")
             com_ok = True
@@ -161,6 +179,7 @@ def conectar_outlook_app(
 
     _log = progress_log or (lambda m: logging.info(m))
     _log("Conectando a Outlook…")
+    _ensure_com_initialized()
 
     if ensure_running:
         asegurar_outlook_abierto(log=_log)
@@ -176,6 +195,7 @@ def conectar_outlook_app(
             raise SessionCancelled()
         attempt += 1
         try:
+            _ensure_com_initialized()
             outlook_app = win32com.client.Dispatch("Outlook.Application")
             # Fuerza carga de perfil MAPI
             _ = outlook_app.GetNamespace("MAPI")
@@ -185,9 +205,15 @@ def conectar_outlook_app(
             return outlook_app
         except Exception as e:
             last_err = e
+            err_txt = str(e)
             logging.warning("Intento Outlook %s falló: %s", attempt, e)
             if attempt == 1 or attempt % 3 == 0:
-                _log(f"Outlook aún no responde (intento {attempt}). Esperando…")
+                if "CoInitialize" in err_txt:
+                    _log(
+                        f"Outlook COM aún no listo en este hilo (intento {attempt}). Reintentando…"
+                    )
+                else:
+                    _log(f"Outlook aún no responde (intento {attempt}). Esperando…")
             # Si el proceso no apareció, reintentar apertura
             if ensure_running and not _outlook_process_running():
                 try:
@@ -365,5 +391,6 @@ def filtrar_correos_por_fecha(folder, fecha_inicio: datetime, fecha_fin: datetim
         )
 
     logging.info("Correos encontrados en rango: %s", len(mensajes))
-    utils.print_success(f"Correos encontrados en rango: {len(mensajes)}")
+    # No usar print_success aquí: bajo uvicorn/hilos en Windows Rich puede
+    # lanzar OSError [Errno 22] y tumbar la etapa aunque Outlook ya respondió.
     return mensajes

@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from db.models import Boleta, Docente
 from db.session import SessionLocal
+from db.solicitud_row import merge_solicitud_row
 
 
 def _normalize_boleta_key(key: Optional[str]) -> str:
@@ -41,6 +42,13 @@ def upsert_boleta_recepcion(
     glosa: Optional[str],
     monto_bruto,
     archivo_xml: Optional[str],
+    recepcion_status: Optional[str] = None,
+    xml_status: Optional[str] = None,
+    mail_recepcion_status: Optional[str] = None,
+    glosa_match_mode: Optional[str] = None,
+    effective_status_reason: Optional[str] = None,
+    solicitud_row: Optional[dict] = None,
+    empl_rcd: Optional[str] = None,
 ) -> bool:
     try:
         with SessionLocal() as session:
@@ -120,10 +128,19 @@ def upsert_boleta_recepcion(
 
             row.estado_recepcion = estado_recepcion
             row.observaciones_recepcion = observaciones_recepcion
+            row.recepcion_status = recepcion_status
+            row.xml_status = xml_status
+            row.mail_recepcion_status = mail_recepcion_status
+            row.glosa_match_mode = glosa_match_mode
+            row.effective_status_reason = effective_status_reason
             row.glosa = glosa
             row.rut_razon = rut_razon
             row.monto_bruto = monto_decimal
             row.descripcion = archivo_xml
+            if empl_rcd is not None:
+                row.empl_rcd = str(empl_rcd).strip() or None
+            if solicitud_row is not None:
+                row.solicitud_row = merge_solicitud_row(row.solicitud_row, solicitud_row)
             row.updated_at = datetime.utcnow()
 
             session.commit()

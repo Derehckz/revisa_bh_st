@@ -4,6 +4,7 @@ import {
   CalendarRange,
   ClipboardList,
   Cog,
+  FileSpreadsheet,
   LayoutDashboard,
   PanelLeftClose,
   PanelLeftOpen,
@@ -14,6 +15,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { Topbar } from "@/app/layouts/topbar";
+import { AppUpdateBanner } from "@/app/layouts/app-update-banner";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 
@@ -24,6 +26,7 @@ const navItems = [
   { to: "/docentes", icon: Users, label: "Docentes" },
   { to: "/operacion", icon: Cog, label: "Operación" },
   { to: "/avance", icon: ClipboardList, label: "Avance" },
+  { to: "/informe", icon: FileSpreadsheet, label: "Informes" },
   { to: "/runs", icon: BarChart3, label: "Runs" },
   { to: "/settings", icon: Settings2, label: "Ajustes" },
 ];
@@ -109,6 +112,7 @@ export function AppShell() {
 
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <Topbar />
+        <AppUpdateBanner />
         <main
           id="main-content"
           className={cn(

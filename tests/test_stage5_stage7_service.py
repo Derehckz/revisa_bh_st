@@ -47,10 +47,11 @@ class TestStage5Mail(unittest.TestCase):
             ),
             "problema",
         )
-        self.assertIsNone(
+        self.assertEqual(
             mail5.clasificar_fila_recepcion(
                 {"Estado_Recepcion": "NO RECIBIDO", "Observacion_Descartes": ""}
-            )
+            ),
+            "problema",
         )
 
     def test_preview_problema_includes_issue(self):
@@ -102,7 +103,7 @@ class TestStage5Mail(unittest.TestCase):
         self.assertGreaterEqual(stats["previewed"], 1)
         self.assertEqual(previews[0]["tipo"], "recepcion_problema")
         self.assertIn("Monto XML distinto", previews[0]["mail"]["html_body"])
-        self.assertIn("brevedad", previews[0]["mail"]["html_body"].lower())
+        self.assertIn("anular", previews[0]["mail"]["html_body"].lower())
 
     def test_preview_only_per_mail_no_outlook(self):
         df = pd.DataFrame(
@@ -176,6 +177,15 @@ class TestStage5Mail(unittest.TestCase):
 class TestStage7Mail(unittest.TestCase):
     def test_normalizar_monto_liquido_miles(self):
         self.assertEqual(mail7.normalizar_monto_liquido("159.669"), 159669)
+        self.assertEqual(mail7.normalizar_monto_liquido("108.000"), 108000)
+        self.assertEqual(mail7.normalizar_monto_liquido("91.530"), 91530)
+        self.assertEqual(mail7.normalizar_monto_liquido(91.53), 91530)
+        self.assertEqual(mail7.normalizar_monto_liquido(108.0), 108000)
+        self.assertEqual(mail7.normalizar_monto_liquido(339.0), 339000)
+        self.assertEqual(mail7.normalizar_monto_liquido(542.4), 542400)
+        self.assertEqual(mail7.normalizar_monto_liquido(203.4), 203400)
+        # Ya en pesos
+        self.assertEqual(mail7.normalizar_monto_liquido(91530), 91530)
 
     def test_correo_enviado_column_accepts_text_markers(self):
         df = pd.DataFrame(

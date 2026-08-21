@@ -112,6 +112,22 @@ class TestRecommendNextAction(unittest.TestCase):
         self.assertEqual(rec["kind"], "run")
         self.assertEqual(rec["stage_num"], 4)
 
+    def test_step2_waiting_copy_when_no_xml(self):
+        stages = [
+            _stage(0, "OK"),
+            _stage(1, "OK"),
+            _stage(2, "READY"),
+            _stage(3, "READY"),
+        ]
+        rec = stage_operations.recommend_next_action(
+            stages,
+            kpis={"solicitud_exists": True, "xml_files_in_month": 0},
+        )
+        self.assertEqual(rec["kind"], "run")
+        self.assertEqual(rec["stage_num"], 2)
+        self.assertIn("boletas", rec["title"].lower())
+
+
 
 if __name__ == "__main__":
     unittest.main()

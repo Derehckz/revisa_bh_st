@@ -10,7 +10,9 @@ Opera en tres capas que conviven:
 | **API FastAPI** (`api/`) | Lectura (dashboard, boletas, docentes) + operaciones (jobs, sesiones interactivas, outbox, avance Excel). |
 | **Frontend React** (`frontend/`) | Monitoreo y sala de control **Operación** para usuario de oficina. |
 
-Excel (`Solicitud.xlsx`) sigue siendo la **fuente operativa del mes**. PostgreSQL recibe dual-write / snapshot para trazabilidad y pantallas de consulta. Outlook (COM, Windows) envía y descarga correos.
+Excel (`Solicitud.xlsx`) es el artefacto de **interoperabilidad** del mes (entrada de etapas y export).
+PostgreSQL es la **fuente de lectura** para Avance e Informes (incluidos meses cerrados), con dual-write desde las etapas.
+Outlook (COM, Windows) envía y descarga correos.
 
 ---
 
@@ -62,7 +64,7 @@ Sin este sistema el trabajo se hace a mano abriendo Excel y Outlook. Con él, el
 - Operación web:
   - pasos **0–4** (y bridges) con sesión interactiva WebSocket;
   - flujo *streamlined* (menos confirms; auto-guardado Excel en 3/4);
-  - pestaña **Avance Excel** (lee `Solicitud.xlsx` en vivo);
+  - pestaña **Avance** (lee PostgreSQL cuando `BH_READ_FROM_DB=1`; fallback Excel);
   - Outlook se puede **abrir solo** si está cerrado al conectar COM;
   - outbox de correos (SQLite) + dispatch COM.
 - CLI **siempre vigente** e independiente de uvicorn/React. Ver [`docs/CLI_FIRST.md`](docs/CLI_FIRST.md).
@@ -207,7 +209,8 @@ Esquema canónico (validación opt-in): `lib/schema_validator.py`.
 | `*_XML`, `Observaciones_XML` | Paso 4 | Datos extraídos del XML |
 | Identidad / montos | Paso 0+ | `EMPLID`, `NAME`, `Email_Docente`, `SEDE`, `CUS_TOT_HON`, `GLOSA`, … |
 
-La pestaña **Avance Excel** agrega recepción, correos, XML y (si existe) hoja Pagos **leyendo el archivo en disco** (si Excel lo tiene abierto, intenta copia temporal).
+La pestaña **Avance** muestra recepción, correos, XML y Pagos desde **PostgreSQL** (`BH_READ_FROM_DB=1`).
+**Informes del mes** (Final + Pagos) leen snapshots en `periodos`. El Excel en disco queda como backup/export.
 
 ---
 

@@ -202,8 +202,11 @@ def generar_cuerpo_solicitud(
     """
 
 
-def generar_asunto_recepcion(numero_boleta: str) -> str:
-    return f"✅ Confirmación de Recepción de Boleta de Honorarios - Boleta n°{numero_boleta}"
+def generar_asunto_recepcion(numero_boleta: str, *, provisionado: bool = False) -> str:
+    base = f"Confirmación de recepción de boleta n°{numero_boleta}"
+    if provisionado:
+        return f"✅ {base} (provisión — sujeta a Contabilidad)"
+    return f"✅ {base} (revisión técnica)"
 
 
 def generar_asunto_recepcion_problema(*, mes: str, año: str | int, numero_boleta: str | None = None) -> str:
@@ -222,13 +225,40 @@ def generar_cuerpo_recepcion(
     rut: str,
     rut_emisor: str,
     monto: float | int | str,
+    *,
+    provisionado: bool = False,
 ) -> str:
     monto_texto = _format_monto(monto)
+    if provisionado:
+        titulo = "Boleta de provisión recibida (revisión técnica)"
+        intro = (
+            "Hemos recibido y validado técnicamente su <strong>Boleta de Honorarios (PROVISIONADO)</strong>: "
+            "coincide con lo solicitado (monto, glosa y razón social). "
+            "Queda <strong>sujeta a la validación de Contabilidad</strong> antes del cierre del período; "
+            "si Contabilidad observa diferencias, le pediremos anular y reemitir."
+        )
+        bullets = """
+                    <li>Esto confirma recepción técnica según la solicitud, no el cierre contable del mes.</li>
+                    <li>Contabilidad revisará el informe final (normales y provisionados).</li>
+                    <li>Si hay que rectificar, le enviaremos un correo de observación con el monto correcto.</li>
+        """
+    else:
+        titulo = "Boleta recibida (revisión técnica)"
+        intro = (
+            "Hemos recibido y validado técnicamente su <strong>Boleta de Honorarios</strong>: "
+            "coincide con lo solicitado (monto, glosa y razón social). "
+            "El documento entra al proceso del período; Contabilidad valida el informe consolidado antes del cierre."
+        )
+        bullets = """
+                    <li>Esto confirma que la boleta calza con la solicitud, no un pago ya autorizado.</li>
+                    <li>El pago se informa después, según el calendario institucional (paso de pagos).</li>
+                    <li>Si Contabilidad detecta un problema en el informe, podríamos pedirle una corrección.</li>
+        """
     return f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px;">
         <div style="text-align: center; margin-bottom: 20px;">
-            <h1 style="color: #2E8B57; margin: 0;">🎉 ¡Boleta Recepcionada Exitosamente!</h1>
-            <p style="color: #666; font-size: 16px; margin: 5px 0;">Su documento ha sido procesado correctamente</p>
+            <h1 style="color: #2E8B57; margin: 0;">✅ {titulo}</h1>
+            <p style="color: #666; font-size: 16px; margin: 5px 0;">Validación operativa frente a la solicitud del mes</p>
         </div>
 
         <div style="background-color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -237,8 +267,7 @@ def generar_cuerpo_recepcion(
             </p>
 
             <p style="font-size: 16px; line-height: 1.6; color: #555;">
-                Hemos recibido y procesado correctamente su <strong>Boleta de Honorarios</strong>. 
-                Su documento está ahora en nuestro sistema y será incluido en el proceso de pagos correspondiente.
+                {intro}
             </p>
 
             <div style="background-color: #e8f5e8; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #2E8B57;">
@@ -253,20 +282,19 @@ def generar_cuerpo_recepcion(
             </div>
 
             <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ffc107;">
-                <h3 style="color: #856404; margin: 0 0 10px 0;">⚠️ Información Importante</h3>
+                <h3 style="color: #856404; margin: 0 0 10px 0;">ℹ️ Qué significa este correo</h3>
                 <ul style="margin: 0; padding-left: 20px; color: #856404;">
-                    <li>Su boleta ha sido validada y está lista para procesamiento de pago.</li>
-                    <li>El pago se realizará según el calendario establecido por la institución.</li>
-                    <li>Ante cualquier duda, puede contactarnos respondiendo este correo.</li>
+                    {bullets}
+                    <li>Ante dudas, puede responder este correo.</li>
                 </ul>
             </div>
 
             <div style="text-align: center; margin-top: 30px;">
                 <p style="font-size: 16px; color: #666; margin-bottom: 10px;">
-                    💼 <strong>Equipo de Convenio Los Lagos</strong>
+                    <strong>Equipo de Convenio Los Lagos</strong>
                 </p>
                 <p style="font-size: 14px; color: #999;">
-                    Gracias por su colaboración y puntualidad en el envío de documentos 📅
+                    Gracias por su colaboración y puntualidad en el envío de documentos.
                 </p>
             </div>
         </div>
@@ -290,19 +318,21 @@ def generar_cuerpo_recepcion_problema(
     rut_razon: str = "",
     numero_boleta: str = "",
     emplid: str = "",
+    glosa: str = "",
 ) -> str:
     """Aviso cuando llegó BH con error o no hizo match con la solicitud."""
-    problema_txt = _safe_str(problema).strip() or "La boleta recibida no coincide con la solicitud."
+    problema_txt = _safe_str(problema).strip() or "La boleta recibida no coincide con lo solicitado."
     descartes_txt = _safe_str(detalle_descartes).strip()
     monto_txt = _format_monto(monto_esperado) if monto_esperado not in (None, "") else "N/A"
     boleta_txt = _safe_str(numero_boleta).strip() or "N/A"
     rut_txt = _safe_str(rut_razon).strip() or "N/A"
     emplid_txt = _safe_str(emplid).strip() or "N/A"
+    glosa_txt = _safe_str(glosa).strip() or "N/A"
     descartes_block = ""
     if descartes_txt:
         descartes_block = f"""
             <div style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #6c757d;">
-                <h3 style="color: #343a40; margin: 0 0 10px 0;">📎 Detalle de archivos revisados</h3>
+                <h3 style="color: #343a40; margin: 0 0 10px 0;">📎 Qué revisamos de lo enviado</h3>
                 <p style="margin: 0; color: #495057; font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{descartes_txt}</p>
             </div>
         """
@@ -321,25 +351,26 @@ def generar_cuerpo_recepcion_problema(
             </p>
 
             <p style="font-size: 16px; line-height: 1.6; color: #555;">
-                Revisamos la documentación asociada a su solicitud de boleta de honorarios de
-                <strong>{str(mes).capitalize()} {año}</strong>.
-                <strong>No pudimos validarla correctamente</strong> (llegó con error o no coincidió
-                con los datos de la solicitud). Le pedimos <strong>reenviar a la brevedad</strong>
-                el par PDF + XML con prefijo <strong>bhe_</strong>, emitido a la razón social correcta
-                y por el monto indicado.
+                Revisamos la boleta asociada a la <strong>solicitud que le enviamos</strong> para
+                <strong>{str(mes).capitalize()} {año}</strong>
+                (monto <strong>{monto_txt}</strong>).
+                <strong>No pudimos aceptarla</strong> porque no coincide con lo pedido.
+                Le pedimos <strong>anular si corresponde, regenerar y reenviar</strong>
+                el par PDF + XML (prefijo <strong>bhe_</strong>) con el monto, la glosa y la razón social correctos.
             </p>
 
             <div style="background-color: #f8d7da; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #dc3545;">
-                <h3 style="color: #721c24; margin: 0 0 10px 0;">❗ Problema detectado</h3>
+                <h3 style="color: #721c24; margin: 0 0 10px 0;">❗ Motivo</h3>
                 <p style="margin: 0; color: #721c24; font-size: 15px; line-height: 1.5;">{problema_txt}</p>
             </div>
 
             <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ffc107;">
-                <h3 style="color: #856404; margin: 0 0 10px 0;">📋 Datos de la solicitud</h3>
+                <h3 style="color: #856404; margin: 0 0 10px 0;">📋 Lo que pedimos en la solicitud</h3>
                 <ul style="list-style: none; padding: 0; margin: 0; color: #856404;">
+                    <li style="margin-bottom: 8px;"><strong>Monto:</strong> {monto_txt}</li>
+                    <li style="margin-bottom: 8px;"><strong>Glosa:</strong> {glosa_txt}</li>
+                    <li style="margin-bottom: 8px;"><strong>RUT razón (receptor):</strong> {rut_txt}</li>
                     <li style="margin-bottom: 8px;"><strong>ID / EMPLID:</strong> {emplid_txt}</li>
-                    <li style="margin-bottom: 8px;"><strong>RUT razón (receptor esperado):</strong> {rut_txt}</li>
-                    <li style="margin-bottom: 8px;"><strong>Monto esperado:</strong> {monto_txt}</li>
                     <li style="margin-bottom: 8px;"><strong>Nº boleta revisada (si aplica):</strong> {boleta_txt}</li>
                 </ul>
             </div>
@@ -347,7 +378,7 @@ def generar_cuerpo_recepcion_problema(
             <div style="background-color: #e8f5e8; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #2E8B57;">
                 <h3 style="color: #2E8B57; margin: 0 0 10px 0;">✅ Qué hacer ahora</h3>
                 <ul style="margin: 0; padding-left: 20px; color: #2E8B57;">
-                    <li>Corrija el problema indicado arriba.</li>
+                    <li>Corrija el motivo indicado (monto y/o glosa según el correo de solicitud).</li>
                     <li>Reenvíe PDF y XML juntos (mismo número de boleta), con nombre <strong>bhe_…</strong>.</li>
                     <li>Responda este correo si necesita ayuda o ya reenvió la documentación.</li>
                 </ul>

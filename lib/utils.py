@@ -253,12 +253,25 @@ def seleccionar_opcion(lista: List[Any], mensaje: str, icono: str = "") -> Any:
     return terminal_ui.seleccionar_opcion(lista, mensaje, icono)
 
 
+def email_from_cell(value: Any) -> str:
+    """Normaliza una celda de correo (NaN/None/'nan' → vacío)."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and value != value:
+        return ""
+    text = str(value).strip()
+    if text.lower() in {"", "nan", "none", "nat", "<na>"}:
+        return ""
+    return text
+
+
 def validar_email(email: Optional[str]) -> bool:
     """Valida formato básico de correo electrónico."""
-    if email is None or not str(email).strip():
+    text = email_from_cell(email)
+    if not text:
         return False
     patron = r'^[\w\.-]+@[\w\.-]+\.\w+$'
-    return bool(re.match(patron, str(email).strip()))
+    return bool(re.match(patron, text))
 
 
 def find_element_ignore_ns(root: Any, tag_name: str) -> Optional[Any]:

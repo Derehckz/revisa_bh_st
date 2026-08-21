@@ -14,13 +14,25 @@ def _month_dir(year: int | str, month: str) -> str:
 
 
 def _list_month_csv(year: int | str, month: str, month_path: str) -> list[dict[str, str]]:
+    """Lista CSV del mes aptos como mapa IP/CFT (excluye Contabilidad/pagos)."""
     if not os.path.isdir(month_path):
         return []
+    import map_ip_cft
+
     prefix = f"{year}/{month}"
     out: list[dict[str, str]] = []
     for name in sorted(os.listdir(month_path)):
-        if name.lower().endswith(".csv") and os.path.isfile(os.path.join(month_path, name)):
-            out.append({"value": f"{prefix}/{name}", "label": name})
+        if not name.lower().endswith(".csv"):
+            continue
+        path = os.path.join(month_path, name)
+        if not os.path.isfile(path):
+            continue
+        if not map_ip_cft.looks_like_map_csv(path):
+            continue
+        label = name
+        if name.lower().startswith("map_ip_cft"):
+            label = f"{name} (recomendado)"
+        out.append({"value": f"{prefix}/{name}", "label": label})
     return out
 
 
@@ -62,7 +74,11 @@ def build_interactive_choices(stage_num: int, year: int, month: str) -> dict[str
     }
 
     if stage_num == 0:
-        maestros = xlsx_in_month
+        import period_bootstrap
+
+        maestros = [
+            f for f in xlsx_in_month if not period_bootstrap._is_excluded_maestro_name(f)
+        ]
         root_xlsx = sorted(
             f
             for f in os.listdir(config.RAIZ)
@@ -79,6 +95,25 @@ def build_interactive_choices(stage_num: int, year: int, month: str) -> dict[str
             {"value": "IP", "label": "Solo IP"},
             {"value": "CFT", "label": "Solo CFT"},
         ]
+
+    if stage_num == 5 and os.path.isfile(solicitud):
+        try:
+            import pandas as pd
+            from stages.stage5 import mail as mail_ops
+
+            with pd.ExcelFile(solicitud, engine="openpyxl") as xls:
+                sheet = xls.sheet_names[0]
+            df = pd.read_excel(solicitud, sheet_name=sheet, engine="openpyxl")
+            for col in ("Observaciones", "Observacion_Descartes", "Correo_Recepcion_Enviado"):
+                if col not in df.columns:
+                    df[col] = ""
+            choices["recepcion_preview"] = mail_ops.build_recepcion_preview(df)
+        except Exception as exc:
+            choices["recepcion_preview"] = {
+                "candidates": [],
+                "counts": {},
+                "error": str(exc),
+            }
 
     return choices
 
@@ -121,9 +156,11 @@ def enrich_params_schema(
             opts = list(choices.get("map_csv_files") or [])
             default_rel = f"{year}/{month}/map_ip_cft.csv"
             if not any(o["value"] == default_rel for o in opts):
-                opts.insert(0, {"value": default_rel, "label": "map_ip_cft.csv (recomendado)"})
+                opts.insert(0, {"value": default_rel, "label": "map_ip_cft.csv (recomendado — se genera si falta)"})
             f["options"] = opts
+            f["default"] = default_rel
             f["label"] = "Archivo de clasificación IP/CFT (CSV)"
+            f["help"] = "Use map_ip_cft.csv. No use Contabilidad_pagos ni otros CSV del mes."
 
         if name == "institucion":
             f["type"] = "select"
@@ -159,7 +196,7 @@ def _friendly_boolean_label(name: str, default: str) -> str:
         "send": "Enviar correos reales (si no, solo revisa sin mandar)",
         "force_resend": "Forzar reenvío (ignorar si ya se envió antes)",
         "strict": "Validación estricta del Excel",
-        "dry_run": "Solo simular (no mover ni borrar archivos)",
+        "dry_run": "Solo simular (no crea carpetas IP/CFT ni mueve archivos)",
         "mover": "Mover archivos en lugar de copiar (paso 8)",
         "no_interactive": "Ejecutar sin preguntas en consola (recomendado desde la web)",
         "agrupar_archivos": "Copiar PDF/XML a la carpeta de cada docente",

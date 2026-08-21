@@ -8,7 +8,8 @@ _GUIDES: dict[int, dict[str, Any]] = {
         "title": "Crear la planilla Solicitud del mes",
         "summary": (
             "Toma el archivo maestro de pagos y la base de docentes, y genera "
-            "Solicitud.xlsx en la carpeta del mes. Es el punto de partida del proceso."
+            "Solicitud.xlsx en la carpeta del mes. Antes de generar puedes ver "
+            "qué boletas NO RECIBIDO de meses previos se agregarán como PROVISIONADO."
         ),
         "steps": [
             {
@@ -18,13 +19,19 @@ _GUIDES: dict[int, dict[str, Any]] = {
             },
             {
                 "id": "choose",
-                "title": "Elegir archivos",
-                "detail": "Selecciona el maestro del mes y la base BD-DOCENTES.",
+                "title": "Elegir archivos y ver provisionados",
+                "detail": (
+                    "Selecciona el maestro y BD-DOCENTES. Revisa la tabla de arrastre: "
+                    "esas filas se agregan al generar y cada una tendrá su propio correo."
+                ),
             },
             {
                 "id": "run",
                 "title": "Generar Solicitud",
-                "detail": "Se crea o actualiza Solicitud.xlsx. Luego revisa el resultado en Seguimiento.",
+                "detail": (
+                    "Se crea o actualiza Solicitud.xlsx con el maestro más las filas "
+                    "PROVISIONADO. Luego envía correos en el paso 1."
+                ),
             },
         ],
     },
@@ -32,11 +39,20 @@ _GUIDES: dict[int, dict[str, Any]] = {
         "title": "Enviar correos de solicitud de boleta",
         "summary": (
             "Avisa a los docentes que deben emitir su boleta. Sin marcar envío real "
-            "solo revisa a quién iría el correo (como una vista previa)."
+            "solo revisa a quién iría el correo (como una vista previa). "
+            "Si ya enviaste solicitudes y solo faltan respuestas, usa «Solo recordatorios» "
+            "(no reenvía el correo original)."
         ),
         "steps": [
             {"id": "review", "title": "Revisar Solicitud y adjunto PDF", "detail": "Debe existir Solicitud.xlsx y el PDF de ejemplo."},
-            {"id": "choose", "title": "Decidir si envías correos reales", "detail": "Deja desmarcado «Enviar correos reales» para solo analizar."},
+            {
+                "id": "choose",
+                "title": "Envío inicial vs solo recordatorios",
+                "detail": (
+                    "Primera vez: marca «Enviar correos reales» para solicitar boletas. "
+                    "Si ya pediste y hay NO RECIBIDO, marca «Solo recordatorios»."
+                ),
+            },
             {"id": "run", "title": "Ejecutar envíos", "detail": "Outlook debe estar abierto en este equipo si envías de verdad."},
         ],
     },
@@ -44,12 +60,23 @@ _GUIDES: dict[int, dict[str, Any]] = {
         "title": "Descargar boletas desde el correo",
         "summary": (
             "Busca en Outlook los XML/PDF del período y los guarda en la carpeta del mes. "
-            "Indica desde qué fecha hasta qué fecha revisar el buzón."
+            "Por defecto usa todo el mes: no acotes fechas sin motivo (se pierden boletas)."
         ),
         "steps": [
-            {"id": "review", "title": "Revisar fechas del mes", "detail": "Por defecto se usa todo el mes seleccionado (ej. 01/05 a 31/05)."},
-            {"id": "choose", "title": "Ajustar fechas si hace falta", "detail": "Puedes acotar el rango con el calendario o escribiendo dd/mm/aaaa."},
-            {"id": "run", "title": "Extraer adjuntos", "detail": "Los archivos quedan en la carpeta del mes; revisa el log al terminar."},
+            {
+                "id": "review",
+                "title": "Revisar fechas del mes",
+                "detail": "Por defecto se usa todo el mes seleccionado (ej. 01/08 a 31/08).",
+            },
+            {
+                "id": "choose",
+                "title": "Ampliar si llega fuera del mes",
+                "detail": (
+                    "Solo cambia el rango si sabes que hay correos antes/después del mes. "
+                    "Acotar de más deja boletas como NO RECIBIDO."
+                ),
+            },
+            {"id": "run", "title": "Extraer adjuntos", "detail": "Los archivos quedan en la carpeta del mes; no modifica Excel."},
         ],
     },
     3: {
@@ -73,51 +100,74 @@ _GUIDES: dict[int, dict[str, Any]] = {
     5: {
         "title": "Avisar recepción por correo",
         "summary": (
-            "Envía confirmación solo a filas RECIBIDO. Importante: sin «Enviar correos reales» "
-            "no se manda nada (modo prueba)."
+            "Confirmación técnica (calza con la Solicitud) o observación/reenvío si hay error. "
+            "No es el visto bueno de Contabilidad: eso se marca en el checklist tras el informe."
         ),
         "steps": [
-            {"id": "review", "title": "Revisar quién está RECIBIDO", "detail": "Mira el resumen de la planilla arriba."},
+            {
+                "id": "review",
+                "title": "Elegir grupos",
+                "detail": "Confirmaciones (técnicas), errores y/o reenvíos. Provisionados avisan que Contabilidad aún valida.",
+            },
             {"id": "choose", "title": "Confirmar envío real", "detail": "Marca envío real solo cuando estés seguro."},
-            {"id": "run", "title": "Enviar confirmaciones", "detail": "Cada correo usa los datos del XML en Solicitud."},
+            {"id": "run", "title": "Enviar", "detail": "Solo se despacha a los grupos seleccionados."},
         ],
     },
     6: {
         "title": "Informe final de boletas",
-        "summary": "Genera el informe consolidado del mes en Solicitud.",
+        "summary": (
+            "Genera el informe consolidado para enviar a Contabilidad. "
+            "Cuando Contabilidad responda OK, márcalo en el checklist antes de cerrar el período."
+        ),
         "steps": [
-            {"id": "review", "title": "Revisar Solicitud", "detail": "Debe estar actualizado tras pasos anteriores."},
+            {"id": "review", "title": "Revisar período", "detail": "Debe estar actualizado tras pasos anteriores."},
             {"id": "choose", "title": "Sin opciones extra", "detail": "Solo confirma el período correcto."},
-            {"id": "run", "title": "Generar informe", "detail": "Revisa el log por advertencias."},
+            {
+                "id": "run",
+                "title": "Generar informe",
+                "detail": "Envía el informe a Contabilidad; luego marca OK Contabilidad en Operación.",
+            },
         ],
     },
     7: {
         "title": "Correos de información de pago",
         "summary": (
-            "Lee la hoja Pagos y envía el detalle de depósito. Requiere fecha de pago y "
-            "marcar envío real si corresponde."
+            "Pega o sube la tabla de Contabilidad (solo correo HTML/CSV), "
+            "completa MAIL/SEDE desde Solicitud, previsualiza y envía el detalle de depósito."
         ),
         "steps": [
-            {"id": "review", "title": "Revisar hoja Pagos", "detail": "Debe existir en Solicitud.xlsx."},
-            {"id": "choose", "title": "Fecha de pago y envío", "detail": "Elige la fecha que verán los docentes."},
-            {"id": "run", "title": "Enviar correos de pago", "detail": "Revisa montos en vista previa del script si dudas."},
+            {
+                "id": "import",
+                "title": "Cargar pagos Contabilidad",
+                "detail": "Pega la tabla del correo o sube CSV/Excel; se agregan MAIL y SEDE.",
+            },
+            {
+                "id": "choose",
+                "title": "Fecha de pago",
+                "detail": "La fecha que verán los docentes en el correo.",
+            },
+            {
+                "id": "run",
+                "title": "Previsualizar y enviar",
+                "detail": "Revisa montos/correos y despacha por Outlook.",
+            },
         ],
     },
     8: {
         "title": "Separar boletas IP y CFT",
         "summary": (
-            "Copia o mueve PDF/XML a subcarpetas IP y CFT según el mapa de clasificación. "
-            "Elige el archivo CSV de mapeo en la carpeta del mes."
+            "Organiza archivos del mes en carpetas IP/CFT según el mapa del período. "
+            "Elige el CSV de mapeo en la carpeta del mes."
         ),
         "steps": [
-            {"id": "review", "title": "Revisar archivos en la carpeta", "detail": "Deben estar los bhe_*.pdf/xml del mes."},
+            {"id": "review", "title": "Revisar archivos del período", "detail": "Deben estar los bhe_*.pdf/xml del mes."},
             {"id": "choose", "title": "Elegir CSV y modo", "detail": "map_ip_cft.csv clasifica cada RUT. Puedes simular sin mover."},
             {"id": "run", "title": "Separar archivos", "detail": "Revisa carpetas IP/ y CFT/ al finalizar."},
         ],
     },
     9: {
         "title": "Agrupar por docente",
-        "summary": "Organiza archivos en carpetas por docente dentro de IP/CFT.",
+        "summary": "Organiza archivos en carpetas por docente dentro de IP/CFT del período.",
         "steps": [
             {"id": "review", "title": "Revisar paso 8", "detail": "Primero deben existir carpetas IP/CFT con boletas."},
             {"id": "choose", "title": "Copiar archivos a carpetas docente", "detail": "Marca la opción si quieres copiar PDF/XML a cada carpeta."},
@@ -126,11 +176,14 @@ _GUIDES: dict[int, dict[str, Any]] = {
     },
     10: {
         "title": "Revisión final de carpetas",
-        "summary": "Comprueba que cada docente tenga lo esperado y genera revision_carpetas.xlsx.",
+        "summary": (
+            "Comprueba que cada docente tenga lo esperado en el período "
+            "y genera el artefacto revision_carpetas.xlsx."
+        ),
         "steps": [
             {"id": "review", "title": "Revisar estructura IP/CFT", "detail": "Tras pasos 8 y 9."},
             {"id": "choose", "title": "Simular o forzar", "detail": "Simulación no escribe marcadores; forzar re-analiza todo."},
-            {"id": "run", "title": "Generar revisión", "detail": "Abre revision_carpetas.xlsx al terminar."},
+            {"id": "run", "title": "Generar revisión", "detail": "Revisa el artefacto al terminar."},
         ],
     },
 }

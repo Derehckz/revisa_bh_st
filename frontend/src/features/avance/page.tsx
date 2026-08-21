@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAppConfig } from "@/app/app-config";
-import { usePeriods } from "@/shared/api/queries";
+import { invalidatePeriodViews, usePeriods } from "@/shared/api/queries";
 import {
   defaultOperationPeriodKey,
   resolveOperationPeriod,
@@ -12,12 +13,21 @@ import { ExcelAvancePanel } from "@/features/operacion/excel-avance-panel";
 
 export function AvancePage() {
   const { baseUrl, apiKey } = useAppConfig();
+  const queryClient = useQueryClient();
   const periods = usePeriods(baseUrl, apiKey);
   const [selectedKey, setSelectedKey] = useState("");
 
   useEffect(() => {
+    invalidatePeriodViews(queryClient);
+  }, [queryClient, baseUrl, apiKey]);
+
+  useEffect(() => {
     if (!periods.data?.length) return;
-    setSelectedKey((prev) => prev || defaultOperationPeriodKey(periods.data ?? []) || "");
+    setSelectedKey((prev) => {
+      const exists = periods.data!.some((p) => `${p.year}-${p.month_name}` === prev);
+      if (prev && exists) return prev;
+      return defaultOperationPeriodKey(periods.data!) || "";
+    });
   }, [periods.data]);
 
   const selectedPeriod = useMemo(
@@ -30,10 +40,10 @@ export function AvancePage() {
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold tracking-tight text-foreground md:text-xl">
-            Avance Excel
+            Avance
           </h1>
           <p className="text-xs text-muted-foreground md:text-[0.8125rem]">
-            Solicitud.xlsx · recepción, correos, XML y detalle por fila
+            Recepción, correos, XML y detalle por fila del período
           </p>
         </div>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">

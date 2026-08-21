@@ -4,6 +4,7 @@ import { useAppConfig } from "@/app/app-config";
 import { useBoletas, usePeriods } from "@/shared/api/queries";
 import type { BoletaItem } from "@/shared/api/types";
 import { useDebouncedValue } from "@/shared/hooks/use-debounced-value";
+import { defaultOperationPeriodKey, periodKey, resolveOperationPeriod } from "@/shared/lib/default-period";
 import { toCurrency } from "@/shared/lib/utils";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -27,8 +28,16 @@ export function BoletasPage() {
   const { push } = useToast();
   const periods = usePeriods(baseUrl, apiKey);
   const [selectedPeriodKey, setSelectedPeriodKey] = useState<string>("");
-  const selected =
-    periods.data?.find((p) => `${p.year}-${p.month_name}` === selectedPeriodKey) || periods.data?.[0];
+  const selected = resolveOperationPeriod(periods.data ?? [], selectedPeriodKey);
+
+  useEffect(() => {
+    if (!periods.data?.length) return;
+    const exists = periods.data.some((p) => periodKey(p.year, p.month_name) === selectedPeriodKey);
+    if (!selectedPeriodKey || !exists) {
+      setSelectedPeriodKey(defaultOperationPeriodKey(periods.data) || "");
+    }
+  }, [periods.data, selectedPeriodKey]);
+
   const [estado, setEstado] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -41,12 +50,6 @@ export function BoletasPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const debouncedQ = useDebouncedValue(q, 300);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (!selectedPeriodKey && periods.data?.length) {
-      setSelectedPeriodKey(`${periods.data[0].year}-${periods.data[0].month_name}`);
-    }
-  }, [periods.data, selectedPeriodKey]);
 
   const query = useBoletas(baseUrl, apiKey, {
     year: selected?.year,

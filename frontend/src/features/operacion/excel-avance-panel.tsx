@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Expand, Loader2, RefreshCw, X } from "lucide-react";
+import { Expand, Loader2, RefreshCw, X, AlertTriangle } from "lucide-react";
 import type { ExcelAvanceRow } from "@/shared/api/types";
 import { useExcelAvance } from "@/shared/api/queries";
 import { Button } from "@/shared/ui/button";
@@ -18,33 +18,116 @@ type Props = {
 
 type FilterKey =
   | "todos"
+  | "normales"
+  | "provisionados"
   | "pendiente_recepcion"
   | "con_error"
+  | "boleta_descartada"
   | "sin_correo"
   | "sin_xml"
   | "con_recordatorio";
 
 const FILTERS: { id: FilterKey; label: string }[] = [
   { id: "todos", label: "Todos" },
+  { id: "normales", label: "Normales" },
+  { id: "provisionados", label: "Provisionados" },
   { id: "pendiente_recepcion", label: "Sin recepción" },
+  { id: "boleta_descartada", label: "Boleta no tomada" },
   { id: "con_error", label: "Con error" },
   { id: "sin_correo", label: "Sin correo" },
   { id: "sin_xml", label: "Sin XML" },
   { id: "con_recordatorio", label: "Con recordatorio" },
 ];
 
-function pct(part: number, total: number): number {
-  if (!total) return 0;
-  return Math.round((part / total) * 100);
+function isProvisionado(row: ExcelAvanceRow): boolean {
+  if (typeof row.provisionado === "boolean") return row.provisionado;
+  const glosa = (row.glosa || "").toLowerCase();
+  return glosa.includes("provisionado") || glosa.includes("provisonado") || glosa.includes("provs");
+}
+
+function effectiveEstadoRecepcion(row: ExcelAvanceRow): string {
+  return (row.estado_recepcion_efectivo || row.estado_recepcion || "").trim();
+}
+
+function recepcionStatusLabel(row: ExcelAvanceRow): string {
+  const raw = (row.estado_recepcion || "").trim();
+  const eff = effectiveEstadoRecepcion(row);
+  if (raw && eff && raw !== eff) return `${raw} -> ${eff}`;
+  return eff || raw;
+}
+
+function hasXmlEvidence(row: ExcelAvanceRow): boolean {
+  return Boolean(
+    row.archivo_xml?.trim() ||
+      row.archivo_xml_usado?.trim() ||
+      row.numero_boleta_xml?.trim() ||
+      row.descripcion_xml?.trim()
+  );
+}
+
+function hasGlosaDistinta(row: ExcelAvanceRow): boolean {
+  return row.glosa_xml_coincide === false && hasXmlEvidence(row) && recepcionFinalizada(row);
+}
+
+function hasGlosaNormalizada(row: ExcelAvanceRow): boolean {
+  return row.glosa_xml_coincide === true && row.glosa_match_mode === "prefijo_omitido";
+}
+
+function hasBoletaDescartada(row: ExcelAvanceRow): boolean {
+  const estado = effectiveEstadoRecepcion(row).toUpperCase();
+  return Boolean(row.observacion_descartes?.trim()) && (estado === "NO RECIBIDO" || estado === "RECIBIDO CON ERROR");
+}
+
+function recepcionFinalizada(row: ExcelAvanceRow): boolean {
+  const estado = effectiveEstadoRecepcion(row).toUpperCase();
+  return estado === "RECIBIDO" || estado === "RECIBIDO CON ERROR";
+}
+
+function recordatoriosNum(row: ExcelAvanceRow): number {
+  return Number(String(row.recordatorios || "").replace(/[^\d]/g, "") || "0");
+}
+
+function recordatoriosLabel(row: ExcelAvanceRow): string {
+  const n = recordatoriosNum(row);
+  if (n <= 0) return "0";
+  if (recepcionFinalizada(row)) return `${n} (hist.)`;
+  return String(n);
+}
+
+/** Resumen corto para chip en listado (detalle completo en title / panel). */
+function discardAlertLabel(descartes: string): string {
+  const d = descartes.toLowerCase();
+  if (
+    d.includes("provisionado") ||
+    d.includes("glosa/provisión") ||
+    d.includes("glosa/provision")
+  ) {
+    return "Glosa PROVISIONADO";
+  }
+  if (d.includes("ya quedó asociada") || d.includes("ya asignada") || d.includes("otra solicitud")) {
+    return "Asignada a otra solicitud";
+  }
+  if (d.includes("monto") && (d.includes("distinto") || d.includes("pero esta solicitud") || d.includes("por $"))) {
+    return "Monto distinto";
+  }
+  if (d.includes("razón social") || d.includes("rut receptor") || d.includes("razón")) {
+    return "Razón social distinta";
+  }
+  if (d.includes("rut emisor")) return "RUT emisor distinto";
+  return "Boleta no tomada";
 }
 
 function matchesFilter(row: ExcelAvanceRow, filter: FilterKey): boolean {
-  const estado = row.estado_recepcion.trim().toUpperCase();
+  const estado = effectiveEstadoRecepcion(row).toUpperCase();
   if (filter === "todos") return true;
+  if (filter === "normales") return !isProvisionado(row);
+  if (filter === "provisionados") return isProvisionado(row);
   if (filter === "pendiente_recepcion") return !estado || estado === "NO RECIBIDO";
+  if (filter === "boleta_descartada") return hasBoletaDescartada(row);
   if (filter === "con_error") {
     return (
       estado === "RECIBIDO CON ERROR" ||
+      hasGlosaDistinta(row) ||
       row.correo_clase === "error" ||
       row.xml_clase === "observacion" ||
       Boolean(row.observacion_descartes?.trim())
@@ -57,6 +140,11 @@ function matchesFilter(row: ExcelAvanceRow, filter: FilterKey): boolean {
     return n > 0 || /recordatorio/i.test(row.correo_enviado || "");
   }
   return true;
+}
+
+function pct(part: number, total: number): number {
+  if (!total) return 0;
+  return Math.round((part / total) * 100);
 }
 
 export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embedded" }: Props) {
@@ -86,6 +174,7 @@ export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embed
         r.observacion_descartes,
         r.numero_boleta_xml,
         r.glosa,
+        isProvisionado(r) ? "provisionado" : "normal",
       ]
         .join(" ")
         .toLowerCase()
@@ -108,22 +197,22 @@ export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embed
   }, [filtered, selectedRow, data?.rows]);
 
   if (!year || !month) {
-    return <p className="text-sm text-muted-foreground">Elige un mes para ver el avance del Excel.</p>;
+    return <p className="text-sm text-muted-foreground">Elige un mes para ver el avance del período.</p>;
   }
 
   if (q.isLoading && !data) {
     return (
       <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Leyendo Solicitud.xlsx…
+        <Loader2 className="h-4 w-4 animate-spin" /> Cargando avance del período…
       </p>
     );
   }
 
-  if (!data?.solicitud_exists) {
+  if (!data || ((data.total_rows ?? 0) === 0 && !data.solicitud_exists)) {
     return (
       <div className="space-y-2 text-sm">
         <p className="text-muted-foreground">
-          Aún no hay <strong>Solicitud.xlsx</strong> en este mes.
+          Aún no hay solicitudes registradas en este período.
         </p>
         <p className="text-xs text-muted-foreground">{data?.month_dir}</p>
       </div>
@@ -131,7 +220,7 @@ export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embed
   }
 
   if (data.read_error) {
-    return <p className="text-sm text-danger">No se pudo leer el Excel: {data.read_error}</p>;
+    return <p className="text-sm text-danger">No se pudo cargar el avance: {data.read_error}</p>;
   }
 
   const total = data.total_rows;
@@ -139,6 +228,7 @@ export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embed
   const recErr = data.recepcion.recibido_con_error;
   const recibidos = recOk + recErr;
   const isFull = layout === "full";
+  const updatedAgo = formatUpdatedAgo(q.dataUpdatedAt);
 
   return (
     <div
@@ -151,16 +241,20 @@ export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embed
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           {!isFull && (
-            <h2 className="text-base font-semibold tracking-tight">Avance de Solicitud.xlsx</h2>
+            <h2 className="text-base font-semibold tracking-tight">Avance del período</h2>
           )}
           <p className={cn("text-xs text-muted-foreground", isFull && "md:text-[0.8125rem]")}>
             {month} {year}
-            {data.mtime ? ` · ${formatMtime(data.mtime)}` : ""}
+            {updatedAgo ? ` · actualizado ${updatedAgo}` : ""}
             {" · "}
             {filtered.length}/{total} fila{total === 1 ? "" : "s"}
             {data.rows_truncated ? " (tabla limitada)" : ""}
             {" · "}
             XML {data.archivos_mes.xml} · PDF {data.archivos_mes.pdf}
+          </p>
+          <p className="text-2xs text-muted-foreground/90">
+            Se actualiza al vuelo (cada ~10 s). El paso 2 solo guarda archivos en la carpeta; recepción y
+            XML se actualizan con los pasos 3 y 4.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -301,6 +395,12 @@ export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embed
             </button>
           ))}
         </div>
+        {data ? (
+          <span className="text-xs text-muted-foreground">
+            {countForFilter(data.rows, "normales")} normales · {countForFilter(data.rows, "provisionados")}{" "}
+            provisionadas
+          </span>
+        ) : null}
         <Input
           type="search"
           value={qtext}
@@ -332,6 +432,7 @@ export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embed
               <tr>
                 <th className="px-2.5 py-2">#</th>
                 <th className="px-2.5 py-2">Docente</th>
+                <th className="px-2.5 py-2">Tipo</th>
                 <th className="px-2.5 py-2">EMPLID</th>
                 <th className="px-2.5 py-2">Razón</th>
                 <th className="px-2.5 py-2">Recepción</th>
@@ -344,7 +445,7 @@ export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embed
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-2 py-6 text-center text-muted-foreground">
+                  <td colSpan={10} className="px-2 py-6 text-center text-muted-foreground">
                     Sin filas para este filtro.
                   </td>
                 </tr>
@@ -374,6 +475,23 @@ export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embed
                           {[r.sede, r.email].filter(Boolean).join(" · ") || "—"}
                         </div>
                       </td>
+                      <td className="px-2 py-1.5">
+                        {isProvisionado(r) ? (
+                          <span
+                            className="inline-flex rounded-md bg-amber-500/15 px-1.5 py-0.5 text-2xs font-semibold text-amber-800"
+                            title={r.glosa || "Arrastre de mes anterior (PROVISIONADO)"}
+                          >
+                            Provisionado
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex rounded-md bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground"
+                            title={r.glosa || "Boleta del mes (maestro)"}
+                          >
+                            Normal
+                          </span>
+                        )}
+                      </td>
                       <td className="px-2 py-1.5 font-mono text-xs">{r.emplid || "—"}</td>
                       <td className="px-2 py-1.5 text-xs">
                         <div className="max-w-[160px] truncate" title={r.nombre_razon}>
@@ -382,12 +500,52 @@ export function ExcelAvancePanel({ baseUrl, apiKey, year, month, layout = "embed
                         <div className="font-mono text-2xs text-muted-foreground">{r.rut_razon || ""}</div>
                       </td>
                       <td className="px-2 py-1.5">
-                        <StatusPill value={r.estado_recepcion || "Pendiente"} kind={recepcionKind(r)} />
+                        <div className="flex flex-col items-start gap-1">
+                          <StatusPill value={recepcionStatusLabel(r) || "Pendiente"} kind={recepcionKind(r)} />
+                          {hasGlosaDistinta(r) ? (
+                            <span
+                              className="inline-flex max-w-[200px] items-center gap-1 truncate rounded-md bg-warning/15 px-1.5 py-0.5 text-2xs font-semibold text-warning"
+                              title="La glosa del XML no coincide con la solicitada"
+                            >
+                              <AlertTriangle className="h-3 w-3 shrink-0" />
+                              Glosa distinta
+                            </span>
+                          ) : null}
+                          {hasGlosaNormalizada(r) ? (
+                            <span
+                              className="inline-flex max-w-[220px] items-center gap-1 truncate rounded-md bg-blue-500/12 px-1.5 py-0.5 text-2xs font-semibold text-blue-700"
+                              title="La glosa coincide por normalización (prefijo institucional omitido en XML)"
+                            >
+                              Glosa normalizada
+                            </span>
+                          ) : null}
+                          {hasBoletaDescartada(r) ? (
+                            <span
+                              className="inline-flex max-w-[200px] items-center gap-1 truncate rounded-md bg-warning/15 px-1.5 py-0.5 text-2xs font-semibold text-warning"
+                              title={r.observacion_descartes}
+                            >
+                              <AlertTriangle className="h-3 w-3 shrink-0" />
+                              {discardAlertLabel(r.observacion_descartes || "")}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-2 py-1.5">
                         <StatusPill value={shortMail(r.correo_enviado) || "Pendiente"} kind={r.correo_clase} />
                       </td>
-                      <td className="px-2 py-1.5 text-xs tabular-nums">{r.recordatorios || "0"}</td>
+                      <td
+                        className={cn(
+                          "px-2 py-1.5 text-xs tabular-nums",
+                          recepcionFinalizada(r) && recordatoriosNum(r) > 0 && "text-muted-foreground"
+                        )}
+                        title={
+                          recepcionFinalizada(r) && recordatoriosNum(r) > 0
+                            ? "Recordatorios enviados antes de marcar recepción."
+                            : undefined
+                        }
+                      >
+                        {recordatoriosLabel(r)}
+                      </td>
                       <td className="px-2 py-1.5">
                         <StatusPill
                           value={xmlSummary(r)}
@@ -463,11 +621,31 @@ function RowDetailPanel({
         </Button>
       </div>
       <div className="flex-1 space-y-4 overflow-y-auto p-3">
+        {hasBoletaDescartada(row) ? (
+          <div
+            className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[0.8125rem] text-foreground"
+            role="status"
+          >
+            <p className="font-semibold tracking-tight text-warning">
+              Boleta en carpeta pero no tomada para esta fila
+            </p>
+            <p className="mt-1 leading-snug text-muted-foreground">
+              {row.observaciones?.trim() ||
+                "Hay archivo(s) del docente que no cuadran con esta línea de la solicitud."}
+            </p>
+            {row.observacion_descartes?.trim() ? (
+              <p className="mt-1.5 break-words font-mono text-2xs text-muted-foreground">
+                {row.observacion_descartes}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         <DetailSection title="Identificación">
           <DetailKV label="EMPLID" value={row.emplid} mono />
           <DetailKV label="RUT sin DV" value={row.rut_sin_dv} mono />
           <DetailKV label="Sede" value={row.sede} />
           <DetailKV label="Location" value={row.location} />
+          <DetailKV label="Tipo" value={isProvisionado(row) ? "Provisionado (arrastre)" : "Normal (maestro del mes)"} />
           <DetailKV label="Email DP" value={row.email_dp} />
         </DetailSection>
         <DetailSection title="Razón social">
@@ -478,9 +656,29 @@ function RowDetailPanel({
           <DetailKV label="Monto esperado" value={row.monto} />
         </DetailSection>
         <DetailSection title="Correo y recepción">
-          <DetailKV label="Estado recepción" value={row.estado_recepcion || "Pendiente"} />
+          <DetailKV label="Estado recepción (vista)" value={recepcionStatusLabel(row) || "Pendiente"} />
+          {row.estado_recepcion && row.estado_recepcion !== effectiveEstadoRecepcion(row) ? (
+            <DetailKV label="Estado en Excel" value={row.estado_recepcion} />
+          ) : null}
+          {hasGlosaDistinta(row) ? (
+            <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs text-warning">
+              La glosa del XML no coincide con la pedida en la solicitud. Esta fila se trata como error
+              aunque en Excel quede \"RECIBIDO\".
+            </p>
+          ) : null}
+          {hasGlosaNormalizada(row) ? (
+            <p className="rounded-md border border-blue-300/50 bg-blue-50 px-2 py-1.5 text-xs text-blue-700">
+              Coincidencia válida por normalización: el XML omite el prefijo institucional (IPST/CFTST),
+              pero el resto de la glosa coincide.
+            </p>
+          ) : null}
           <DetailKV label="Correo enviado" value={row.correo_enviado || "—"} />
-          <DetailKV label="Recordatorios" value={row.recordatorios || "0"} />
+          <DetailKV label="Recordatorios" value={recordatoriosLabel(row)} />
+          {recepcionFinalizada(row) && recordatoriosNum(row) > 0 ? (
+            <p className="rounded-md border border-blue-300/50 bg-blue-50 px-2 py-1.5 text-xs text-blue-700">
+              Estos recordatorios son históricos: se enviaron antes de que la boleta quedara recepcionada.
+            </p>
+          ) : null}
           <DetailKV label="Correo recepción" value={row.correo_recepcion_enviado || "—"} />
           <DetailKV label="Observaciones" value={row.observaciones || "—"} />
           <DetailKV label="Obs. descartes" value={row.observacion_descartes || "—"} />
@@ -526,7 +724,7 @@ function DetailKV({ label, value, mono }: { label: string; value?: string | null
 }
 
 function recepcionKind(r: ExcelAvanceRow): string {
-  const e = r.estado_recepcion.trim().toUpperCase();
+  const e = effectiveEstadoRecepcion(r).toUpperCase();
   if (e === "RECIBIDO") return "enviado";
   if (e === "RECIBIDO CON ERROR") return "error";
   if (e === "NO RECIBIDO") return "omitido";
@@ -540,19 +738,26 @@ function shortMail(value: string): string {
 }
 
 function xmlSummary(r: ExcelAvanceRow): string {
+  // «Glosa no coincide» solo con recepción finalizada + XML asociado.
+  if (hasGlosaDistinta(r)) return "Glosa no coincide";
+  const estado = effectiveEstadoRecepcion(r).toUpperCase();
+  // Sin boleta válida recibida: alinear con Observaciones («aún no recibimos…»).
+  if (!estado || estado === "NO RECIBIDO") return "XML no recibido";
   if (r.numero_boleta_xml) return `Boleta ${r.numero_boleta_xml}`;
+  if (!hasXmlEvidence(r)) return "Pendiente";
   if (r.xml_clase === "ok") return "OK";
   if (r.observaciones_xml) return shortMail(r.observaciones_xml);
   if (r.archivo_xml) return "Archivo ligado";
   return "Pendiente";
 }
 
-function formatMtime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" });
-  } catch {
-    return iso;
-  }
+function formatUpdatedAgo(dataUpdatedAt: number): string {
+  if (!dataUpdatedAt) return "";
+  const sec = Math.max(0, Math.round((Date.now() - dataUpdatedAt) / 1000));
+  if (sec < 5) return "actualizados ahora";
+  if (sec < 60) return `actualizados hace ${sec} s`;
+  const min = Math.round(sec / 60);
+  return `actualizados hace ${min} min`;
 }
 
 function ProgressBlock({

@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import Base
@@ -20,7 +21,37 @@ class Periodo(Base):
     mes_num: Mapped[int] = mapped_column(Integer, nullable=False)
     mes_nombre: Mapped[str] = mapped_column(String(32), nullable=False)
     estado: Mapped[str] = mapped_column(String(16), nullable=False, default="abierto")
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    informe_frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    informe_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    informe_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pagos_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    pagos_frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    contabilidad_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    contabilidad_validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    contabilidad_validated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    contabilidad_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_events_ts", "ts"),
+        Index("ix_audit_events_action", "action"),
+        Index("ix_audit_events_period", "period_year", "period_month"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    operator: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    period_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    period_month: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    entity: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    detail: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class Docente(Base):
@@ -38,6 +69,42 @@ class Docente(Base):
     activo: Mapped[str] = mapped_column(String(8), nullable=False, default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class DirectorPrograma(Base):
+    """Director(a) de programa: un correo, una o más sedes."""
+
+    __tablename__ = "directores_programa"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    nombre: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    email: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+    activo: Mapped[str] = mapped_column(String(8), nullable=False, default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    sedes: Mapped[list["DirectorSede"]] = relationship(
+        back_populates="director",
+        cascade="all, delete-orphan",
+    )
+
+
+class DirectorSede(Base):
+    """Sede con un único DP vigente. Un DP puede cubrir varias sedes."""
+
+    __tablename__ = "director_sedes"
+    __table_args__ = (UniqueConstraint("sede", name="uq_director_sedes_sede"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    director_id: Mapped[int] = mapped_column(
+        ForeignKey("directores_programa.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sede: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    director: Mapped[DirectorPrograma] = relationship(back_populates="sedes")
 
 
 class Institucion(Base):
@@ -76,8 +143,15 @@ class Boleta(Base):
     descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
     estado_recepcion: Mapped[str | None] = mapped_column(String(32), nullable=True)
     observaciones_recepcion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recepcion_status: Mapped[str | None] = mapped_column(String(24), nullable=True, index=True)
+    xml_status: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    mail_recepcion_status: Mapped[str | None] = mapped_column(String(24), nullable=True, index=True)
+    glosa_match_mode: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    effective_status_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     estado_pago: Mapped[str | None] = mapped_column(String(32), nullable=True)
     observaciones_pago: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Snapshot completo de la fila Solicitud.xlsx (maestro + operación + XML).
+    solicitud_row: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

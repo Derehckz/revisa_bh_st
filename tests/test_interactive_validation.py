@@ -22,11 +22,43 @@ def test_interactive_stage8_requires_map_csv():
         )
 
 
-def test_interactive_stage8_ok_with_map():
-    stage_commands.validate_interactive_params(
-        8,
-        {"year": 2026, "month": "Mayo", "map_csv": "herramientas/map.csv"},
+def test_interactive_stage8_ok_with_map(tmp_path, monkeypatch):
+    import map_ip_cft
+
+    monkeypatch.setattr(map_ip_cft.config, "RAIZ", str(tmp_path))
+    month = tmp_path / "2026" / "Mayo"
+    month.mkdir(parents=True)
+    map_path = month / "map_ip_cft.csv"
+    map_path.write_text("RUT_SIN_DV,Categoria\n11111111,IP\n", encoding="utf-8")
+    # Evita assert de período cerrado en DB
+    monkeypatch.setattr(
+        "period_policy.assert_period_open_for_api", lambda *a, **k: None
     )
+    params = {"year": 2026, "month": "Mayo", "map_csv": "2026/Mayo/map_ip_cft.csv"}
+    stage_commands.validate_interactive_params(8, params)
+    assert params["map_csv"].endswith("map_ip_cft.csv")
+
+
+def test_interactive_stage8_rejects_contabilidad_csv(tmp_path, monkeypatch):
+    import map_ip_cft
+
+    monkeypatch.setattr(map_ip_cft.config, "RAIZ", str(tmp_path))
+    month = tmp_path / "2026" / "Mayo"
+    month.mkdir(parents=True)
+    bad = month / "Contabilidad_pagos.csv"
+    bad.write_text("RUT;MONTO\n1;100\n", encoding="cp1252")
+    monkeypatch.setattr(
+        "period_policy.assert_period_open_for_api", lambda *a, **k: None
+    )
+    with pytest.raises(ValueError, match="no parece un mapa|Contabilidad"):
+        stage_commands.validate_interactive_params(
+            8,
+            {
+                "year": 2026,
+                "month": "Mayo",
+                "map_csv": "2026/Mayo/Contabilidad_pagos.csv",
+            },
+        )
 
 
 def test_interactive_stage1_allows_send_in_web():

@@ -7,6 +7,7 @@
 param(
     [switch]$NoBrowser,
     [switch]$Rebuild,
+    [switch]$Restart,
     [int]$Port = 8000
 )
 
@@ -78,7 +79,34 @@ if (-not (Test-Path (Join-Path $Root ".env"))) {
 }
 
 $distIndex = Join-Path $Root "frontend\dist\index.html"
-$needBuild = $Rebuild -or -not (Test-Path $distIndex)
+
+function Test-FrontendStale {
+    if (-not (Test-Path $distIndex)) { return $true }
+    $distTime = (Get-Item $distIndex).LastWriteTimeUtc
+    $watch = @(
+        (Join-Path $Root "frontend\src"),
+        (Join-Path $Root "frontend\index.html"),
+        (Join-Path $Root "frontend\package.json")
+    )
+    foreach ($path in $watch) {
+        if (-not (Test-Path $path)) { continue }
+        $item = Get-Item $path
+        if ($item.PSIsContainer) {
+            $newest = Get-ChildItem $item.FullName -Recurse -File -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTimeUtc -Descending |
+                Select-Object -First 1
+            if ($newest -and $newest.LastWriteTimeUtc -gt $distTime) { return $true }
+        } elseif ($item.LastWriteTimeUtc -gt $distTime) {
+            return $true
+        }
+    }
+    return $false
+}
+
+$needBuild = $Rebuild -or (Test-FrontendStale)
+if ($needBuild -and (Test-Path $distIndex) -and -not $Rebuild) {
+    Write-Host "La interfaz tiene cambios nuevos: se reconstruye frontend/dist." -ForegroundColor Cyan
+}
 
 if ($needBuild) {
     if (-not (Test-Path (Join-Path $Root "frontend\node_modules"))) {
@@ -106,10 +134,23 @@ Write-Host "Python: $Python" -ForegroundColor DarkGray
 
 $env:PYTHONPATH = "$Root;$Root\lib"
 
+if ($Restart) {
+    Write-Host "Reiniciando servidor (liberando puerto $Port)..." -ForegroundColor Cyan
+    & (Join-Path $Root "stop-web.ps1") -ApiPort $Port | Out-Host
+    Start-Sleep -Seconds 1
+}
+
 $alreadyUp = $false
 if (Test-PortListen $Port) {
     if (Wait-Health $Port 5) {
+        if ($Restart) {
+            Write-Host "Puerto :$Port sigue ocupado tras reinicio. Cierra otras ventanas de Python." -ForegroundColor Red
+            Write-Host "Pulsa Enter para cerrar..."
+            Read-Host | Out-Null
+            exit 1
+        }
         Write-Host "Ya hay un servidor listo en :$Port" -ForegroundColor DarkYellow
+        Write-Host "Si acabas de actualizar el programa, usa reiniciar-bh.bat (reinicio en un clic)." -ForegroundColor Yellow
         $alreadyUp = $true
     } else {
         Write-Host "Puerto :$Port ocupado pero /health no responde. Usa stop-bh.bat" -ForegroundColor Red
@@ -161,7 +202,7 @@ if (-not $NoBrowser) {
 Write-Host ""
 Write-Host "URL: http://127.0.0.1:$Port/" -ForegroundColor Cyan
 Write-Host "Primera vez: Ajustes -> pega BH_API_KEY del .env" -ForegroundColor Cyan
-Write-Host "Detener: stop-bh.bat" -ForegroundColor DarkGray
+Write-Host "Detener: stop-bh.bat  |  Reiniciar tras actualizar: reiniciar-bh.bat" -ForegroundColor DarkGray
 Write-Host "Logs: logs\uvicorn.log / logs\uvicorn.err" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "Puedes cerrar esta ventana; el servidor sigue en segundo plano." -ForegroundColor DarkGray

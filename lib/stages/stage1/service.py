@@ -76,6 +76,26 @@ def _batch_preview_table(
             ui.log(f"... y {len(indices) - 5} destinatarios más", level="info")
 
 
+def _confirm_envio_message(
+    n_valid: int,
+    invalidos: list[dict],
+    tipo: str,
+) -> str:
+    label = "correos originales" if tipo == "original" else "recordatorios"
+    msg = f"¿Confirmar envío de {n_valid} {label}?"
+    if not invalidos:
+        return msg
+    lines = [f"{it.get('name') or '—'} ({it.get('emplid') or 'sin RUT'})" for it in invalidos[:8]]
+    extra = (
+        f"\n{len(invalidos)} fila(s) sin correo válido no se enviarán:\n- "
+        + "\n- ".join(lines)
+    )
+    if len(invalidos) > 8:
+        extra += f"\n- … y {len(invalidos) - 8} más"
+    extra += "\nCompleta Correo_Personal en BD-DOCENTES y regenera el paso 0."
+    return msg + extra
+
+
 class Stage1Service:
     def run(self, ctx: Stage1Context, ui: InteractionPort) -> dict:
         ui.header("Inicio — envío de correos solicitud BH", "Boletas de Honorarios")
@@ -234,8 +254,19 @@ class Stage1Service:
                 level="info",
             )
 
+        invalidos_original = mail_ops.announce_invalid_emails(ui, df, indices_sin_envio)
+        invalidos_recordatorio = mail_ops.announce_invalid_emails(ui, df, indices_recordatorio)
+        n_orig_valid = max(0, len(indices_sin_envio) - len(invalidos_original))
+        n_rec_valid = max(0, len(indices_recordatorio) - len(invalidos_recordatorio))
+
         ui.log(f"Pendientes envío original: {len(indices_sin_envio)}", level="info")
         ui.log(f"Pendientes recordatorio: {len(indices_recordatorio)}", level="info")
+        if invalidos_original:
+            ui.log(
+                f"De esos originales, {n_orig_valid} con correo válido "
+                f"y {len(invalidos_original)} sin correo (no se envían).",
+                level="warning",
+            )
 
         resumen_rec = reminder_policy.resumen_recordatorios(df, columna_estado, columna_recordatorios)
         ui.table(
@@ -252,8 +283,11 @@ class Stage1Service:
             "analysis.ready",
             {
                 "original_count": len(indices_sin_envio),
+                "original_valid_count": n_orig_valid,
                 "reminder_count": len(indices_recordatorio),
+                "reminder_valid_count": n_rec_valid,
                 "allow_send": ctx.allow_send,
+                "invalid_emails": invalidos_original + invalidos_recordatorio,
             },
         )
 
@@ -334,9 +368,16 @@ class Stage1Service:
                         horario_limite=deadline_kwargs["horario_recepcion"],
                     )
                     if ctx.supervision_mode == SupervisionMode.BATCH:
-                        if ui.confirm_yes_no(
+                        if n_orig_valid <= 0:
+                            ui.log(
+                                "No hay correos originales con dirección válida para enviar.",
+                                level="warning",
+                            )
+                        elif ui.confirm_yes_no(
                             "Envío original",
-                            f"¿Confirmar envío de {len(indices_sin_envio)} correos originales?",
+                            _confirm_envio_message(
+                                n_orig_valid, invalidos_original, "original"
+                            ),
                             default=False,
                         ):
                             stats_total.update(_send_mail(indices_sin_envio, "original"))
@@ -363,9 +404,16 @@ class Stage1Service:
                         horario_limite=deadline_kwargs["horario_recordatorio"],
                     )
                     if ctx.supervision_mode == SupervisionMode.BATCH:
-                        if ui.confirm_yes_no(
+                        if n_rec_valid <= 0:
+                            ui.log(
+                                "No hay recordatorios con dirección válida para enviar.",
+                                level="warning",
+                            )
+                        elif ui.confirm_yes_no(
                             "Recordatorios",
-                            f"¿Confirmar {len(indices_recordatorio)} recordatorios?",
+                            _confirm_envio_message(
+                                n_rec_valid, invalidos_recordatorio, "recordatorio"
+                            ),
                             default=False,
                         ):
                             r = _send_mail(indices_recordatorio, "recordatorio")

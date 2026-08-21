@@ -119,8 +119,25 @@ SOLICITUD_XML_COLUMNS: list[str] = [
     "Observaciones_XML",
 ]
 
+MAESTRO_REQUIRED_COLUMNS: list[str] = [
+    "EMPLID",
+    "NAME",
+    "LOCATION",
+    "EMPL_RCD",
+    "HR_STATUS",
+    "DESCR",
+    "MONTH",
+    "YEAR",
+    "CUS_INCIDENCIA",
+    "CUS_MTO_CTA",
+    "CUS_MTO_BONO",
+    "CUS_MTO_DAPTO",
+    "CUS_TOT_HON",
+]
+
 # Esquema canónico por etapa del pipeline.
 CANONICAL_SCHEMA: dict[str, list[str]] = {
+    "stage0_maestro": MAESTRO_REQUIRED_COLUMNS,
     "stage1_envio_inicial": SOLICITUD_BASE_COLUMNS,
     "stage3_validacion_recepcion": SOLICITUD_BASE_COLUMNS,
     "stage4_extraccion_xml": SOLICITUD_BASE_COLUMNS + SOLICITUD_RECEPCION_COLUMNS,
