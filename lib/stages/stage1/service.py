@@ -57,23 +57,28 @@ def _batch_preview_table(
     ui.table(f"Previsualización — {tipo_envio}", rows)
 
     if df is not None and indices is not None and len(indices) > 0:
-        sample_rows: list[tuple[str, str]] = []
-        for idx in list(indices)[:5]:
-            monto_raw = df.at[idx, "CUS_TOT_HON"] if "CUS_TOT_HON" in df.columns else None
-            import email_templates as templates
+        import email_templates as templates
 
+        shown = list(indices)[:40]
+        sample_rows: list[tuple[str, str]] = []
+        for idx in shown:
+            monto_raw = df.at[idx, "CUS_TOT_HON"] if "CUS_TOT_HON" in df.columns else None
+            email = utils.email_from_cell(
+                df.at[idx, "Email_Docente"] if "Email_Docente" in df.columns else ""
+            )
+            mark = "" if utils.validar_email(email) else " ⚠ sin correo"
             sample_rows.append(
                 (
                     str(df.at[idx, "NAME"]),
-                    f"{df.at[idx, 'Email_Docente']} | {templates._format_monto(monto_raw)}",
+                    f"{email or '(vacío)'} | {templates._format_monto(monto_raw)}{mark}",
                 )
             )
         ui.table(
-            f"Muestra destinatarios ({min(5, len(indices))}/{len(indices)})",
+            f"Destinatarios ({min(40, len(indices))}/{len(indices)})",
             sample_rows,
         )
-        if len(indices) > 5:
-            ui.log(f"... y {len(indices) - 5} destinatarios más", level="info")
+        if len(indices) > 40:
+            ui.log(f"... y {len(indices) - 40} destinatarios más", level="info")
 
 
 def _confirm_envio_message(
@@ -92,7 +97,7 @@ def _confirm_envio_message(
     )
     if len(invalidos) > 8:
         extra += f"\n- … y {len(invalidos) - 8} más"
-    extra += "\nCompleta Correo_Personal en BD-DOCENTES y regenera el paso 0."
+    extra += "\nCompleta el docente en Docentes (correo y sede). Al guardar se actualiza la Solicitud del mes abierto; no hace falta regenerar el paso 0."
     return msg + extra
 
 
@@ -254,6 +259,18 @@ class Stage1Service:
                 level="info",
             )
 
+        if ctx.only_emplids:
+            import maestro_contacto
+
+            ui.log("Solo RUT: " + ", ".join(ctx.only_emplids), level="info")
+            pool = df.index if ctx.force_resend else indices_sin_envio
+            indices_sin_envio = maestro_contacto.filter_indices_by_emplid(
+                df, pool, ctx.only_emplids
+            )
+            indices_recordatorio = maestro_contacto.filter_indices_by_emplid(
+                df, indices_recordatorio, ctx.only_emplids
+            )
+
         invalidos_original = mail_ops.announce_invalid_emails(ui, df, indices_sin_envio)
         invalidos_recordatorio = mail_ops.announce_invalid_emails(ui, df, indices_recordatorio)
         n_orig_valid = max(0, len(indices_sin_envio) - len(invalidos_original))
@@ -279,6 +296,8 @@ class Stage1Service:
             ],
         )
 
+        import maestro_contacto
+
         ui.emit(
             "analysis.ready",
             {
@@ -288,6 +307,8 @@ class Stage1Service:
                 "reminder_valid_count": n_rec_valid,
                 "allow_send": ctx.allow_send,
                 "invalid_emails": invalidos_original + invalidos_recordatorio,
+                "recipients": maestro_contacto.recipient_payload(df, indices_sin_envio, tipo="original")
+                + maestro_contacto.recipient_payload(df, indices_recordatorio, tipo="recordatorio"),
             },
         )
 

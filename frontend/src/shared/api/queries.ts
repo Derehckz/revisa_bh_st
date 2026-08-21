@@ -259,9 +259,16 @@ export function useCreateDocente(baseUrl: string, apiKey: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: DocenteUpsertPayload) =>
-      apiPost<{ ok: boolean; docente: DocenteItem }>(baseUrl, apiKey, "/docentes", payload),
+      apiPost<{ ok: boolean; docente: DocenteItem; solicitud_actualizada?: string[] }>(
+        baseUrl,
+        apiKey,
+        "/docentes",
+        payload
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["docentes"] });
+      void qc.invalidateQueries({ queryKey: ["excel-avance"] });
+      void qc.invalidateQueries({ queryKey: ["monthly-checklist"] });
     },
   });
 }
@@ -270,10 +277,18 @@ export function useUpdateDocente(baseUrl: string, apiKey: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ docenteId, payload }: { docenteId: number; payload: DocenteUpsertPayload }) =>
-      apiRequest<{ ok: boolean; docente: DocenteItem }>(baseUrl, apiKey, `/docentes/${docenteId}`, "PUT", payload),
+      apiRequest<{ ok: boolean; docente: DocenteItem; solicitud_actualizada?: string[] }>(
+        baseUrl,
+        apiKey,
+        `/docentes/${docenteId}`,
+        "PUT",
+        payload
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["docentes"] });
       void qc.invalidateQueries({ queryKey: ["docente-profile"] });
+      void qc.invalidateQueries({ queryKey: ["excel-avance"] });
+      void qc.invalidateQueries({ queryKey: ["monthly-checklist"] });
     },
   });
 }

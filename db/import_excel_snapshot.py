@@ -124,17 +124,39 @@ def _link_docente_institucion(
     rut_sin_dv: str,
     rut_razon: str,
     location: str,
+    nombre: str = "",
+    email: str = "",
+    sede: str = "",
+    email_dp: str = "",
 ) -> None:
-    if boleta.docente_id is None:
-        docente = None
-        if emplid:
-            docente = session.execute(select(Docente).where(Docente.rut == emplid)).scalar_one_or_none()
-        if docente is None and rut_sin_dv:
-            docente = session.execute(
-                select(Docente).where(Docente.rut_sin_dv == rut_sin_dv)
-            ).scalar_one_or_none()
-        if docente is not None:
-            boleta.docente_id = docente.id
+    docente = None
+    if emplid:
+        docente = session.execute(select(Docente).where(Docente.rut == emplid)).scalar_one_or_none()
+    if docente is None and rut_sin_dv:
+        docente = session.execute(
+            select(Docente).where(Docente.rut_sin_dv == rut_sin_dv)
+        ).scalar_one_or_none()
+    if docente is None and emplid and nombre:
+        docente = Docente(
+            rut=emplid,
+            rut_sin_dv=rut_sin_dv or None,
+            nombre_completo=nombre,
+            activo="true",
+        )
+        session.add(docente)
+        session.flush()
+    if docente is not None:
+        if nombre and not (docente.nombre_completo or "").strip():
+            docente.nombre_completo = nombre
+        if email and not (docente.email_personal or "").strip():
+            docente.email_personal = email
+        elif email:
+            docente.email_personal = email
+        if sede and not (docente.sede or "").strip():
+            docente.sede = sede
+        if email_dp and not (docente.email_dp or "").strip():
+            docente.email_dp = email_dp
+        boleta.docente_id = docente.id
     if boleta.institucion_id is None:
         inst = None
         loc = _normalize_location_code(location)
@@ -312,6 +334,10 @@ def run_import(path: str, sheet_solicitud: str, sheet_resumen: str, anio: int, m
                     rut_sin_dv=rut_sin_dv,
                     rut_razon=rut_razon,
                     location=_clean(row.get("LOCATION")),
+                    nombre=_clean(row.get("NAME")),
+                    email=_clean(row.get("Email_Docente")),
+                    sede=_clean(row.get("SEDE")),
+                    email_dp=_clean(row.get("Email_DP")),
                 )
                 boleta.updated_at = datetime.now(UTC)
 

@@ -26,6 +26,7 @@ class Stage1Context:
     supervised: bool = False
     streamlined: bool = False
     reminders_only: bool = False
+    only_emplids: list[str] | None = None
 
     @classmethod
     def from_args(cls, args: Any) -> "Stage1Context":
@@ -51,11 +52,13 @@ class Stage1Context:
             supervision_mode=mode,
             streamlined=False,
             reminders_only=bool(getattr(args, "reminders_only", False)),
+            only_emplids=list(getattr(args, "only_emplids", None) or []) or None,
         )
 
     @classmethod
     def from_api_params(cls, params: dict[str, Any]) -> "Stage1Context":
         from stages.streamlined import param_streamlined
+        import maestro_contacto
 
         mode_raw = str(params.get("supervision_mode") or "batch")
         mode = (
@@ -96,6 +99,10 @@ class Stage1Context:
             supervised=True,
             streamlined=param_streamlined(params),
             reminders_only=bool(params.get("reminders_only")),
+            only_emplids=maestro_contacto.parse_emplid_list(
+                params.get("only_emplids") or params.get("only_rut")
+            )
+            or None,
         )
 
 

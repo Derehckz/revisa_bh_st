@@ -11,6 +11,7 @@ from typing import Tuple, List, Optional, Set
 import bh_errors
 import config
 import director_catalog
+import maestro_contacto
 import utils
 from arrastre_provisionados import aplicar_arrastre_provisionados as _aplicar_arrastre_lib
 from arrastre_provisionados import resolver_mes_anio_anterior  # noqa: F401 — reexport tests/compat
@@ -88,10 +89,10 @@ def _cargar_nuevos_docentes_desde_csv(
     c_dp = pick_col("email_dp")
     c_tel = pick_col("telefono_personal", "telefono")
     c_dir = pick_col("direccion")
-    if not all([c_empl, c_mail, c_sede, c_dp]):
+    if not all([c_empl, c_mail, c_sede]):
         return [], bh_errors.format_bh(
             "CSV_ALTAS_COLUMNS",
-            "CSV debe incluir columnas: EMPLID (o RUT), Correo_Personal, SEDE, Email_DP",
+            "CSV debe incluir columnas: EMPLID (o RUT), Correo_Personal, SEDE. Email_DP es opcional si la sede tiene DP en el catálogo.",
         )
 
     need = {limpiar_emplid(str(x).strip()) for x in no_encontrados["EMPLID"].unique()}
@@ -108,16 +109,28 @@ def _cargar_nuevos_docentes_desde_csv(
         rut_merge = limpiar_emplid(str(fila_ejemplo["EMPLID"]).strip())
         telefono = str(row[c_tel]).strip() if c_tel and pd.notna(row.get(c_tel)) else ""
         direccion = str(row[c_dir]).strip() if c_dir and pd.notna(row.get(c_dir)) else ""
+        correo = str(row[c_mail]).strip()
+        sede = str(row[c_sede]).strip()
+        err_ficha = maestro_contacto.ficha_error(correo, sede)
+        if err_ficha:
+            return [], bh_errors.format_bh(
+                "CSV_ALTAS_FICHA",
+                f"EMPLID {rut_merge}: {err_ficha}",
+            )
+        email_dp = str(row[c_dp]).strip() if c_dp else ""
+        email_dp_auto = director_catalog.email_dp_for_sede(sede)
+        if email_dp_auto:
+            email_dp = email_dp_auto
         nuevas.append(
             {
                 "RUT": rut_merge,
                 "RUT_SIN_DV": rut_merge.split("-")[0] if "-" in rut_merge else rut_merge,
                 "NOMBRE_COMPLETO": nombre,
-                "Correo_Personal": str(row[c_mail]).strip(),
+                "Correo_Personal": correo,
                 "Telefono_Personal": telefono,
                 "Direccion": direccion,
-                "SEDE": str(row[c_sede]).strip(),
-                "Email_DP": str(row[c_dp]).strip(),
+                "SEDE": director_catalog.canonical_sede(sede) or sede,
+                "Email_DP": email_dp,
                 "PS": "",
                 "BANNER": "",
                 "TI": "",
@@ -393,6 +406,7 @@ def generar_solicitud(
         "nuevos_en_bd": 0,
         "provisionados_arrastrados": 0,
         "filas_sin_correo": 0,
+        "fichas_incompletas": 0,
         "email_dp_desde_catalogo": 0,
         "db_sync_ok": False,
         "db_boletas_insertadas": 0,
@@ -486,40 +500,52 @@ def generar_solicitud(
         return None, stats
 
     no_encontrados = df_resultado[df_resultado["merge_status"] == "left_only"].copy()
+    incompletos = df_resultado[maestro_contacto.mask_ficha_incompleta(df_resultado)].copy()
     docentes_unicos_abril = df_resultado["EMPLID"].nunique()
     docentes_encontrados = df_resultado[df_resultado["merge_status"] == "both"]["EMPLID"].nunique()
     docentes_no_encontrados = docentes_unicos_abril - docentes_encontrados
 
     stats["docentes_encontrados"] = docentes_encontrados
     stats["docentes_no_encontrados"] = docentes_no_encontrados
+    stats["fichas_incompletas"] = int(incompletos["EMPLID"].nunique()) if len(incompletos) else 0
 
-    if len(no_encontrados) > 0:
-        utils.print_warning(f"{len(no_encontrados)} filas con docentes NO encontrados en BD")
+    faltantes = pd.concat([no_encontrados, incompletos], ignore_index=False)
+    ruts_faltantes = list(faltantes["EMPLID"].dropna().unique()) if len(faltantes) else []
+
+    if ruts_faltantes:
+        utils.print_warning(
+            f"{len(no_encontrados)} fila(s) sin BD y {stats['fichas_incompletas']} "
+            "con ficha incompleta (sin correo o sede)"
+        )
 
         nuevas_filas: list[dict] = []
         if csv_nuevos_docentes:
             utils.print_info(f"Cargando altas desde CSV: {csv_nuevos_docentes}")
-            nuevas_filas, err_csv = _cargar_nuevos_docentes_desde_csv(csv_nuevos_docentes, no_encontrados)
+            nuevas_filas, err_csv = _cargar_nuevos_docentes_desde_csv(csv_nuevos_docentes, faltantes)
             if err_csv:
                 stats["errores"].append(err_csv)
                 utils.print_error(err_csv)
                 return None, stats
         elif utils.is_non_interactive():
             msg = bh_errors.format_bh(
-                "NUEVOS_DOCENTES_BATCH",
-                "Hay docentes sin BD: use --csv-nuevos-docentes con EMPLID,Correo_Personal,SEDE,Email_DP o ejecute en interactivo.",
+                "FICHA_INCOMPLETA_BATCH",
+                "Hay docentes sin correo o sede: complete BD-DOCENTES (Correo_Personal, SEDE) "
+                "o use --csv-nuevos-docentes. No se genera Solicitud a medias.",
             )
             stats["errores"].append(msg)
             utils.print_error(msg)
             return None, stats
         else:
-            utils.print_info("Se solicitarán datos por terminal para completarlos.")
-            for rut_docente in no_encontrados["EMPLID"].unique():
-                fila_ejemplo = no_encontrados[no_encontrados["EMPLID"] == rut_docente].iloc[0]
+            utils.print_info("Se solicitarán correo y sede para completar la ficha.")
+            for rut_docente in ruts_faltantes:
+                fila_ejemplo = faltantes[faltantes["EMPLID"] == rut_docente].iloc[0]
                 nombre = fila_ejemplo["NAME"]
 
-                utils.print_header("DATOS PARA NUEVO DOCENTE", f"RUT: {rut_docente} - Nombre: {nombre}")
+                utils.print_header("DATOS DE DOCENTE", f"RUT: {rut_docente} - Nombre: {nombre}")
                 correo_personal = utils.prompt_required("📧 Correo personal")
+                while not utils.validar_email(correo_personal):
+                    utils.print_error("Correo inválido.")
+                    correo_personal = utils.prompt_required("📧 Correo personal")
                 sede_raw = utils.prompt_required("🏫 SEDE")
                 sede = director_catalog.canonical_sede(sede_raw) or sede_raw
                 email_dp_auto = director_catalog.email_dp_for_sede(sede)
@@ -534,7 +560,7 @@ def generar_solicitud(
                 nuevas_filas.append(
                     {
                         "RUT": rut_docente,
-                        "RUT_SIN_DV": rut_docente.split("-")[0] if "-" in rut_docente else rut_docente,
+                        "RUT_SIN_DV": rut_docente.split("-")[0] if "-" in str(rut_docente) else rut_docente,
                         "NOMBRE_COMPLETO": nombre,
                         "Correo_Personal": correo_personal,
                         "Telefono_Personal": telefono,
@@ -548,26 +574,35 @@ def generar_solicitud(
                         "OBSERVACIONES": f"[AUTO] Agregado {datetime.now().strftime('%Y-%m-%d')}",
                     }
                 )
-                utils.print_success("Docente agregado a BD")
+                utils.print_success("Ficha completa")
 
-        df_bd_nuevas = pd.DataFrame(nuevas_filas)
-        df_bd = pd.concat([df_bd, df_bd_nuevas], ignore_index=True)
-        stats["nuevos_en_bd"] = len(nuevas_filas)
+        if nuevas_filas:
+            by_rut = {str(r["RUT"]): r for r in nuevas_filas}
+            if "RUT" in df_bd.columns:
+                for idx, brow in df_bd.iterrows():
+                    rut = str(brow.get("RUT") or "").strip()
+                    if rut in by_rut:
+                        neu = by_rut.pop(rut)
+                        for col in ("Correo_Personal", "SEDE", "Email_DP", "Telefono_Personal", "Direccion"):
+                            if col in df_bd.columns:
+                                df_bd.at[idx, col] = neu.get(col, "")
+            if by_rut:
+                df_bd = pd.concat([df_bd, pd.DataFrame(list(by_rut.values()))], ignore_index=True)
+            stats["nuevos_en_bd"] = len(nuevas_filas)
 
         mapping_docentes = df_bd.set_index("RUT")[["Correo_Personal", "Email_DP", "SEDE"]].to_dict("index")
         for idx, row in df_resultado.iterrows():
-            if row["merge_status"] == "left_only":
-                rut_docente = row["EMPLID"]
-                if rut_docente in mapping_docentes:
-                    df_resultado.at[idx, "Correo_Personal"] = mapping_docentes[rut_docente]["Correo_Personal"]
-                    df_resultado.at[idx, "Email_DP"] = mapping_docentes[rut_docente]["Email_DP"]
-                    df_resultado.at[idx, "SEDE"] = mapping_docentes[rut_docente]["SEDE"]
-                    df_resultado.at[idx, "RUT"] = rut_docente
-                    df_resultado.at[idx, "merge_status"] = "both"
+            rut_docente = row["EMPLID"]
+            if rut_docente in mapping_docentes:
+                df_resultado.at[idx, "Correo_Personal"] = mapping_docentes[rut_docente]["Correo_Personal"]
+                df_resultado.at[idx, "Email_DP"] = mapping_docentes[rut_docente]["Email_DP"]
+                df_resultado.at[idx, "SEDE"] = mapping_docentes[rut_docente]["SEDE"]
+                df_resultado.at[idx, "RUT"] = rut_docente
+                df_resultado.at[idx, "merge_status"] = "both"
 
-        utils.print_success("BD-DOCENTES actualizada con datos completos")
+        utils.print_success("BD-DOCENTES actualizada con fichas completas")
     else:
-        utils.print_success("Todos los docentes encontrados en BD")
+        utils.print_success("Todos los docentes tienen correo y sede en BD")
 
     utils.print_step(6, 8, "Validando preservación de los datos del maestro")
     errores_preservacion = validar_preservacion_datos_maestro(
@@ -636,12 +671,13 @@ def generar_solicitud(
         ]
         stats["filas_sin_correo"] = len(sin_correo)
         if sin_correo:
-            utils.print_warning(
-                f"{len(sin_correo)} fila(s) sin correo válido. "
-                "Quedan en Solicitud.xlsx pero el paso 1 no les enviará. "
-                "Completa Correo_Personal en BD-DOCENTES y regenera."
+            utils.print_error(
+                f"{len(sin_correo)} fila(s) sin correo válido. No se guarda Solicitud a medias. "
+                "Completa correo y sede en BD-DOCENTES."
             )
             utils.print_table("SIN CORREO VÁLIDO", sin_correo)
+            stats["errores"].append(f"{len(sin_correo)} fila(s) sin correo válido")
+            return None, stats
 
     utils.print_success(f"{len(columnas_finales)} columnas preparadas")
 

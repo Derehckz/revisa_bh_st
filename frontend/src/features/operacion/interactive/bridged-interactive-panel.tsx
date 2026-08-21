@@ -618,7 +618,7 @@ export function BridgedInteractivePanel({
               ? stage0Stats
                 ? `${stage0Stats.filas} filas en Solicitud (${stage0Stats.maestro} del maestro + ${stage0Stats.prov} PROVISIONADO)${
                     stage0Stats.sinCorreo
-                      ? `. Atención: ${stage0Stats.sinCorreo} sin correo válido — completa BD-DOCENTES y regenera antes del paso 1.`
+                      ? `. Atención: ${stage0Stats.sinCorreo} sin correo válido — completa Docentes (no regeneres el paso 0) antes del envío.`
                       : ". Ya puedes enviar el paso 1."
                   }`
                 : "Ya puedes enviar las solicitudes (paso 1)."

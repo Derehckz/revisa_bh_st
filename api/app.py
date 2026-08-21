@@ -436,6 +436,12 @@ def docente_update(
             operator=operator,
             entity="docente",
             entity_id=str(docente_id),
+            detail={
+                "email_personal": getattr(body, "email_personal", None),
+                "sede": getattr(body, "sede", None),
+                "email_dp": getattr(body, "email_dp", None),
+                "solicitud_actualizada": result.get("solicitud_actualizada") or [],
+            },
         )
     except Exception:
         pass

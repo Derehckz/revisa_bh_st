@@ -302,7 +302,10 @@ export function OperacionPage() {
   return (
     <PeriodOperationProvider period={selectedPeriod}>
       <div className="space-y-3">
-        <PageHeader title="Operación" description="Elige el mes y ejecuta el paso." />
+        <PageHeader
+          title="Operación"
+          description="Elige el mes y el paso. Si falta correo o sede, complétalo en Docentes (se actualiza la Solicitud sin regenerar el paso 0). Outlook debe estar abierto para enviar. Cerrar el mes no es «ejecutar pendientes»."
+        />
 
         <PeriodToolbar
           periods={periods.data ?? []}
@@ -410,8 +413,9 @@ export function OperacionPage() {
               {activeTab === "cierre" && selectedPeriod && (
                 <div className="mx-auto max-w-2xl space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Tras el informe: Contabilidad valida → marcas OK aquí → cierras el mes. El paso 5 solo confirma
-                    recepción técnica. Los pagos de Contabilidad se cargan en el{" "}
+                    Tras el informe: Contabilidad valida → marcas OK aquí → cierras el mes.
+                    Cerrar congela el informe; no uses «Ejecutar pendientes (2–10)» para eso.
+                    Los pagos de Contabilidad se cargan en el{" "}
                     <button
                       type="button"
                       className="underline underline-offset-2"

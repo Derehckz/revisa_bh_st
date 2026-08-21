@@ -34,6 +34,7 @@ def monthly_checklist(year: int | str, month: str) -> dict[str, Any]:
     year_int = int(year)
     month_norm = str(month).strip().capitalize()
     items: list[dict[str, Any]] = []
+    n_incomp = 0
 
     with SessionLocal() as session:
         periodo = session.execute(
@@ -88,6 +89,12 @@ def monthly_checklist(year: int | str, month: str) -> dict[str, Any]:
                 Boleta.solicitud_row.isnot(None),
             )
         ).scalar_one()
+        try:
+            import maestro_contacto
+
+            n_incomp = maestro_contacto.count_fichas_incompletas_periodo(session, periodo.id)
+        except Exception:
+            n_incomp = 0
 
     kpis = stage_operations.period_summary(year_int, month_norm)
     total_rows = int(kpis.get("total_rows") or total or 0)
@@ -120,6 +127,21 @@ def monthly_checklist(year: int | str, month: str) -> dict[str, Any]:
                 message=f"{total_rows} solicitudes con detalle completo.",
             )
         )
+
+    if total_rows > 0:
+        if n_incomp:
+            items.append(
+                _item(
+                    "fichas",
+                    "Fichas de contacto",
+                    status="warn",
+                    message=f"{n_incomp} fila(s) sin correo o sede. Completa Docentes; al guardar se actualiza la Solicitud.",
+                )
+            )
+        else:
+            items.append(
+                _item("fichas", "Fichas de contacto", status="ok", message="Correo y sede en las filas del mes.")
+            )
 
     overview = stage_operations.period_overview(year_int, month_norm, jobs=[])
     stages = {int(s.get("stage_num", -1)): s for s in overview.get("stages") or []}
@@ -197,6 +219,37 @@ def monthly_checklist(year: int | str, month: str) -> dict[str, Any]:
         )
 
     informe_ok = bool(report.get("exists") and int(report.get("total_rows") or 0) > 0)
+    if informe_ok:
+        try:
+            import pagos_informe_cruzado
+
+            cruz = pagos_informe_cruzado.cruzar_periodo(year=year_int, month=month_norm)
+            errn = int(cruz.get("errors_count") or 0)
+            msg = str(cruz.get("message") or "")
+            if cruz.get("ok") and errn == 0:
+                items.append(
+                    _item("pagos_cruzado", "Pagos vs informe", status="ok", message=msg or "Cuadra con Contabilidad.")
+                )
+            elif int(cruz.get("pagos_rows") or 0) == 0:
+                items.append(
+                    _item(
+                        "pagos_cruzado",
+                        "Pagos vs informe",
+                        status="warn",
+                        message="Aún no hay hoja Pagos (cárgala en el paso 7). No cierra el mes por sí solo.",
+                    )
+                )
+            else:
+                items.append(
+                    _item(
+                        "pagos_cruzado",
+                        "Pagos vs informe",
+                        status="warn",
+                        message=f"{errn} diferencia(s) informe vs Contabilidad. Revisa el informe cruzado.",
+                    )
+                )
+        except Exception:
+            pass
     if not informe_ok:
         items.append(
             _item(

@@ -61,7 +61,7 @@ def announce_invalid_emails(ui: InteractionPort, df, indices) -> list[dict[str, 
         return []
     ui.log(
         f"{len(invalidos)} fila(s) sin correo válido: no se enviarán. "
-        "Completa Correo_Personal en BD-DOCENTES y regenera Solicitud (paso 0).",
+        "Completa el docente en Docentes (correo y sede). Al guardar se actualiza la Solicitud del mes abierto.",
         level="warning",
     )
     ui.table(

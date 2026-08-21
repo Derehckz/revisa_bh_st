@@ -2,7 +2,17 @@
 
 ## Objetivo
 
-Guía operativa para levantar, validar y diagnosticar el backend actual (pipeline + PostgreSQL + API FastAPI).
+Guía operativa para levantar, validar y diagnosticar el backend (pipeline + PostgreSQL + API FastAPI).
+
+## Cubrir el mes (suplente)
+
+1. Arranque: `start-bh.bat` → http://127.0.0.1:8000/ — Outlook abierto en este PC.
+2. Docente sin correo o sede: **Docentes** (obligatorio correo + sede; el DP sale de la sede). Al guardar se actualiza la Solicitud del mes abierto; **no regeneres el paso 0**.
+3. Envío puntual: paso 1 → Opciones → «Solo estos RUT». Marca «forzar reenvío» solo si ya se había enviado.
+4. Avance y Excel deben coincidir persona/monto/estado. Si no, sincroniza (paso 0 ya hecho: import/snapshot) o avisa.
+5. Cierre: pasos 6–10, checklist, OK Contabilidad, **Cerrar mes**. Eso no es «Ejecutar pendientes».
+6. Backup: Ajustes → Crear backup ahora. Restore: `herramientas/restore_postgres.ps1`.
+7. Si cambias código Python: `reiniciar-bh.bat`. La UI se reconstruye al arrancar si hay cambios en `frontend/src`.
 
 ## 1) Pre-requisitos
 

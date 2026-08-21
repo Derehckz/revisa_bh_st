@@ -58,6 +58,7 @@ export function Stage1InteractivePanel({
   const [sendReal, setSendReal] = useState(true);
   const [sendConfirm, setSendConfirm] = useState(false);
   const [forceResend, setForceResend] = useState(false);
+  const [onlyEmplids, setOnlyEmplids] = useState("");
   const [remindersOnly, setRemindersOnly] = useState(remindersOnlyInitial);
   const [fechaLimiteRecepcion, setFechaLimiteRecepcion] = useState("");
   const [horarioRecepcion, setHorarioRecepcion] = useState("19:00");
@@ -137,6 +138,7 @@ export function Stage1InteractivePanel({
         force_resend: forceResend,
         strict: false,
         reminders_only: remindersOnly,
+        only_emplids: onlyEmplids.trim() || undefined,
         fecha_limite_recepcion: fechaLimiteRecepcion.trim(),
         horario_recepcion: horarioRecepcion.trim() || "9:00",
         fecha_limite_recordatorio: fechaLimiteRecordatorio.trim(),
@@ -174,6 +176,16 @@ export function Stage1InteractivePanel({
   const lastPreview = [...events].reverse().find((e) => e.type === "mail.preview");
   const summary = [...events].reverse().find((e) => e.type === "session.summary");
   const analysisReady = [...events].reverse().find((e) => e.type === "analysis.ready");
+  const recipients = Array.isArray(analysisReady?.payload?.recipients)
+    ? (analysisReady.payload.recipients as Array<{
+        name?: string;
+        emplid?: string;
+        email?: string;
+        valid?: boolean;
+        tipo?: string;
+        fila?: number;
+      }>)
+    : [];
   const invalidEmails = Array.isArray(analysisReady?.payload?.invalid_emails)
     ? (analysisReady.payload.invalid_emails as Array<{
         name?: string;
@@ -181,7 +193,7 @@ export function Stage1InteractivePanel({
         email?: string;
         fila?: number;
       }>)
-    : [];
+    : recipients.filter((r) => r.valid === false);
   const done = session?.status === "completed" || Boolean(summary);
   const running = isSessionRunning(session?.status);
   const sessionSend = Boolean(session) ? sessionSendEnabled : sendReal;
@@ -321,6 +333,15 @@ export function Stage1InteractivePanel({
                 />
                 Forzar reenvío a quien ya recibió
               </label>
+              <label className="grid gap-1 text-[0.8125rem]">
+                <span className="text-muted-foreground">Solo estos RUT (opcional, separados por coma)</span>
+                <Input
+                  value={onlyEmplids}
+                  onChange={(e) => setOnlyEmplids(e.target.value)}
+                  placeholder="18157697-9"
+                  disabled={Boolean(session) || disabled}
+                />
+              </label>
             </div>
           </details>
           <div className="flex flex-wrap gap-2 pt-1">
@@ -351,6 +372,25 @@ export function Stage1InteractivePanel({
         </CardContent>
       </Card>
 
+      {recipients.length > 0 && (
+        <Card>
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm">
+              Destinatarios de este envío ({recipients.filter((r) => r.valid).length} válidos / {recipients.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="max-h-56 space-y-1 overflow-y-auto text-sm">
+            {recipients.map((row, i) => (
+              <p key={`${row.emplid ?? ""}-${row.tipo ?? ""}-${i}`} className={row.valid === false ? "text-danger" : ""}>
+                {row.valid === false ? "⚠ " : ""}
+                {row.name || "—"} ({row.emplid || "sin RUT"}) — {row.email || "(vacío)"}
+                {row.tipo === "recordatorio" ? " · recordatorio" : ""}
+              </p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {invalidEmails.length > 0 && (
         <Card className="border-warning/40 bg-warning/10">
           <CardHeader className="py-3">
@@ -359,7 +399,8 @@ export function Stage1InteractivePanel({
               {invalidEmails.length} fila(s) sin correo válido — no se envían
             </CardTitle>
             <p className="text-xs font-normal text-muted-foreground">
-              Están en BD-DOCENTES sin Correo_Personal. Completa el dato y regenera el paso 0.
+              Están sin correo válido. Complétalos en Docentes (correo y sede) y vuelve a este paso;
+              no hace falta regenerar el paso 0.
             </p>
           </CardHeader>
           <CardContent className="space-y-1 text-sm">
@@ -385,7 +426,7 @@ export function Stage1InteractivePanel({
           title="Paso 1 listo"
           detail={
             invalidEmails.length
-              ? `Enviados los que tenían correo. ${invalidEmails.length} sin correo válido no se enviaron: completa BD-DOCENTES y regenera el paso 0.`
+              ? `Enviados los que tenían correo. ${invalidEmails.length} sin correo no se enviaron: completa Docentes y reintenta este paso (sin regenerar el 0).`
               : "Revisa el detalle si hace falta. Siguiente: bajar boletas del correo."
           }
           nextLabel={onGoToNextStage ? "Ir al paso 2" : undefined}

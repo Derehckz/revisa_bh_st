@@ -294,6 +294,10 @@ export function DocentesPage() {
       push("RUT y nombre completo son obligatorios", "error");
       return;
     }
+    if (!form.email_personal.trim() || !form.sede.trim()) {
+      push("Correo personal y sede son obligatorios. El correo del DP se asigna según la sede.", "error");
+      return;
+    }
     const payload = {
       rut: form.rut.trim(),
       rut_sin_dv: form.rut_sin_dv.trim() || null,
@@ -308,10 +312,16 @@ export function DocentesPage() {
     try {
       if (selectedDocenteId) {
         const res = await updateDocente.mutateAsync({ docenteId: selectedDocenteId, payload });
-        push(`Docente actualizado: ${res.docente.nombre_completo}`, "success");
+        const extra = res.solicitud_actualizada?.length
+          ? ` Solicitud del mes actualizada (${res.solicitud_actualizada.join(", ")}).`
+          : "";
+        push(`Docente actualizado: ${res.docente.nombre_completo}.${extra}`, "success");
       } else {
         const res = await createDocente.mutateAsync(payload);
-        push(`Docente creado: ${res.docente.nombre_completo}`, "success");
+        const extra = res.solicitud_actualizada?.length
+          ? ` Solicitud del mes actualizada (${res.solicitud_actualizada.join(", ")}).`
+          : "";
+        push(`Docente creado: ${res.docente.nombre_completo}.${extra}`, "success");
         setSelectedDocenteId(res.docente.id);
       }
     } catch (err) {

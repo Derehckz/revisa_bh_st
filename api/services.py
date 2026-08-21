@@ -890,10 +890,15 @@ def _docente_payload_with_stats(session, docente: Docente) -> dict:
 
 
 def create_docente(session, payload: dict) -> dict:
+    import maestro_contacto
+
     rut = str(payload.get("rut") or "").strip()
     nombre = str(payload.get("nombre_completo") or "").strip()
     if not rut or not nombre:
         raise HTTPException(status_code=422, detail="rut y nombre_completo son obligatorios")
+    err = maestro_contacto.ficha_error(payload.get("email_personal"), payload.get("sede"))
+    if err:
+        raise HTTPException(status_code=422, detail=err)
     exists = session.execute(select(Docente).where(func.lower(Docente.rut) == rut.lower())).scalar_one_or_none()
     if exists is not None:
         raise HTTPException(status_code=409, detail=f"Ya existe docente con RUT {rut}")
@@ -914,10 +919,16 @@ def create_docente(session, payload: dict) -> dict:
     session.commit()
     session.refresh(row)
     _sync_docente_excel(row)
-    return {"ok": True, "docente": _docente_payload_with_stats(session, row)}
+    sync_info = _sync_open_solicitudes(row)
+    out = {"ok": True, "docente": _docente_payload_with_stats(session, row)}
+    if sync_info.get("patched"):
+        out["solicitud_actualizada"] = sync_info["patched"]
+    return out
 
 
 def update_docente(session, docente_id: int, payload: dict) -> dict:
+    import maestro_contacto
+
     row = session.execute(select(Docente).where(Docente.id == docente_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail=f"Docente {docente_id} no encontrado")
@@ -925,6 +936,9 @@ def update_docente(session, docente_id: int, payload: dict) -> dict:
     nombre = str(payload.get("nombre_completo") or row.nombre_completo).strip()
     if not rut or not nombre:
         raise HTTPException(status_code=422, detail="rut y nombre_completo son obligatorios")
+    err = maestro_contacto.ficha_error(payload.get("email_personal"), payload.get("sede"))
+    if err:
+        raise HTTPException(status_code=422, detail=err)
     conflict = session.execute(
         select(Docente).where(func.lower(Docente.rut) == rut.lower(), Docente.id != docente_id)
     ).scalar_one_or_none()
@@ -943,7 +957,11 @@ def update_docente(session, docente_id: int, payload: dict) -> dict:
     session.commit()
     session.refresh(row)
     _sync_docente_excel(row)
-    return {"ok": True, "docente": _docente_payload_with_stats(session, row)}
+    sync_info = _sync_open_solicitudes(row)
+    out = {"ok": True, "docente": _docente_payload_with_stats(session, row)}
+    if sync_info.get("patched"):
+        out["solicitud_actualizada"] = sync_info["patched"]
+    return out
 
 
 def disable_docente(session, docente_id: int) -> dict:
@@ -997,6 +1015,20 @@ def _sync_docente_excel(row: Docente) -> None:
         )
     except Exception:
         pass
+
+
+def _sync_open_solicitudes(row: Docente) -> dict:
+    try:
+        import maestro_contacto
+
+        return maestro_contacto.patch_open_solicitudes_for_docente(
+            rut=row.rut,
+            email=row.email_personal or "",
+            sede=row.sede or "",
+            email_dp=row.email_dp,
+        )
+    except Exception:
+        return {"patched": [], "skipped": []}
 
 
 def list_directores(session) -> dict:

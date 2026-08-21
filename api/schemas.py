@@ -303,6 +303,7 @@ class DocenteUpsertRequest(BaseModel):
 class DocenteActionResponse(BaseModel):
     ok: bool
     docente: DocenteItem
+    solicitud_actualizada: list[str] | None = None
 
 
 class DirectorSedeItem(BaseModel):
@@ -349,6 +350,8 @@ class StageStartRequest(BaseModel):
     strict: bool | None = None
     send: bool | None = None
     force_resend: bool | None = None
+    reminders_only: bool | None = None
+    only_emplids: str | None = None
     dry_run: bool | None = None
     # Paso 2
     fecha_inicio: str | None = None

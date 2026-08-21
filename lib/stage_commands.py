@@ -212,6 +212,13 @@ def params_schema_for_stage(stage_num: int) -> list[dict[str, Any]]:
                 default=False,
                 help_text="Útil tras el paso 3/5: solo contacta NO RECIBIDO.",
             ),
+            _param_field(
+                "only_emplids",
+                type_="string",
+                label="Solo estos RUT (separados por coma)",
+                required=False,
+                help_text="Reenvío puntual. Para quien ya recibió, marca también forzar reenvío.",
+            ),
         ]
     if stage_num == 5:
         return [

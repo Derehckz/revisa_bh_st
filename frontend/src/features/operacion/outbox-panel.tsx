@@ -13,6 +13,17 @@ type Props = {
   disabled?: boolean;
 };
 
+function statusLabel(st: string): string {
+  const map: Record<string, string> = {
+    pending: "Pendiente",
+    sent: "Enviado",
+    failed: "Error (reintento)",
+    skipped: "Omitido",
+    dry_skipped: "Omitido (simulación)",
+  };
+  return map[st] || st;
+}
+
 export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
   const { push } = useToast();
   const { confirmBeforeOperation, assessment } = usePeriodOperationGuard();
@@ -40,7 +51,7 @@ export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
         `/operations/outbox/dispatch-com?limit=30&dry_run=${dryRun}`
       );
       push(
-        `Dispatch COM: ok=${result.ok}, failed=${result.failed}, omitidos=${result.dry_skipped}`,
+        `Outlook: ${result.ok} enviado(s), ${result.failed} con error, ${result.dry_skipped} omitido(s).`,
         result.failed > 0 ? "error" : "success"
       );
       await stats.refetch();
@@ -62,7 +73,12 @@ export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
     setBusy(true);
     try {
       const result = await apiPost<{ reopened: number }>(baseUrl, apiKey, "/operations/outbox/reopen-failed?limit=200");
-      push(`Reabiertos ${result.reopened} registros failed → pending.`, "success");
+      push(
+        result.reopened
+          ? `${result.reopened} correo(s) con error volvieron a pendiente para reintento.`
+          : "No había correos con error para reintentar.",
+        "success"
+      );
       await stats.refetch();
       await rows.refetch();
     } catch (e) {
@@ -78,12 +94,12 @@ export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Outbox de correos</CardTitle>
+        <CardTitle>Cola de correos</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Reintento COM sin re-ejecutar scripts (misma lógica que{" "}
-          <code className="text-xs">herramientas/outbox_worker.py</code>).
+          Pendiente = aún no sale. Enviado = Outlook lo despachó. Error = se puede reintentar aquí, sin volver a
+          ejecutar el paso. Omitido = no se mandó (simulación o regla).
         </p>
         {blocked && (
           <p className="text-sm text-amber-700 rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
@@ -93,7 +109,7 @@ export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
         <div className="flex flex-wrap gap-2 text-xs">
           {Object.entries(byStatus).map(([st, n]) => (
             <span key={st} className="rounded-md border border-border px-2 py-1">
-              {st}: <strong>{n}</strong>
+              {statusLabel(st)}: <strong>{n}</strong>
             </span>
           ))}
         </div>
@@ -103,9 +119,9 @@ export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
             Filtrar estado
             <Select className="mt-1 block" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="">Todos</option>
-              <option value="pending">pending</option>
-              <option value="sent">sent</option>
-              <option value="failed">failed</option>
+              <option value="pending">Pendiente</option>
+              <option value="sent">Enviado</option>
+              <option value="failed">Error (reintento)</option>
             </Select>
           </label>
         </div>
@@ -115,9 +131,9 @@ export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
             <thead className="sticky top-0 bg-muted">
               <tr>
                 <th className="px-2 py-1 text-left">id</th>
-                <th className="px-2 py-1 text-left">stage</th>
-                <th className="px-2 py-1 text-left">status</th>
-                <th className="px-2 py-1 text-left">attempts</th>
+                <th className="px-2 py-1 text-left">paso</th>
+                <th className="px-2 py-1 text-left">estado</th>
+                <th className="px-2 py-1 text-left">intentos</th>
               </tr>
             </thead>
             <tbody>
@@ -127,7 +143,7 @@ export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
                   <td className="px-2 py-1 max-w-[200px] truncate" title={row.stage}>
                     {row.stage}
                   </td>
-                  <td className="px-2 py-1">{row.status}</td>
+                  <td className="px-2 py-1">{statusLabel(row.status)}</td>
                   <td className="px-2 py-1">{row.attempts}</td>
                 </tr>
               ))}
@@ -143,7 +159,7 @@ export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
               onChange={(e) => setDispatchConfirm(e.target.checked)}
               disabled={blocked}
             />
-            Confirmo ejecutar dispatch COM (hasta 30 pending)
+            Confirmo despachar hasta 30 pendientes por Outlook
           </label>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -151,10 +167,10 @@ export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
               disabled={busy || !dispatchConfirm || blocked}
               onClick={() => void dispatchCom(true)}
             >
-              Simular dispatch
+              Simular (no envía)
             </Button>
             <Button disabled={busy || !dispatchConfirm || blocked} onClick={() => void dispatchCom(false)}>
-              Dispatch COM real
+              Enviar pendientes
             </Button>
           </div>
         </div>
@@ -167,10 +183,10 @@ export function OutboxPanel({ baseUrl, apiKey, disabled }: Props) {
               onChange={(e) => setReopenConfirm(e.target.checked)}
               disabled={blocked}
             />
-            Confirmo reabrir failed elegibles como pending
+            Confirmo reintentar los que fallaron
           </label>
           <Button variant="outline" disabled={busy || !reopenConfirm || blocked} onClick={() => void reopenFailed()}>
-            Reabrir failed
+            Reintentar errores
           </Button>
         </div>
       </CardContent>
