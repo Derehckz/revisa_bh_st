@@ -13,9 +13,13 @@ def restart_server(*, port: int = 8000) -> dict[str, str]:
     if os.name != "nt":
         raise RuntimeError("El reinicio automático solo está disponible en Windows.")
 
-    script = os.path.join(_REPO_ROOT, "start-bh.ps1")
+    script = os.path.join(_REPO_ROOT, "scripts", "start-bh.ps1")
     if not os.path.isfile(script):
-        raise FileNotFoundError(f"No se encontró {script}")
+        # Compatibilidad si alguien deja el script en la raíz
+        legacy = os.path.join(_REPO_ROOT, "start-bh.ps1")
+        script = legacy if os.path.isfile(legacy) else script
+    if not os.path.isfile(script):
+        raise FileNotFoundError(f"No se encontró scripts/start-bh.ps1 en {_REPO_ROOT}")
 
     cmd = [
         "powershell",

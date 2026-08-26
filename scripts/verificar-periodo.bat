@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-cd /d "%~dp0"
+cd /d "%~dp0.."
 title Verificar periodo Boletas Honorarios
 
 if "%~1"=="" goto :ask_year
@@ -30,7 +30,7 @@ echo.
 
 if not exist "%XLSX%" (
   echo ERROR: No existe el archivo "%XLSX%"
-  echo Uso: verificar-periodo.bat 2026 Julio "2026\Julio\Solicitud.xlsx"
+  echo Uso: scripts\verificar-periodo.bat 2026 Julio "2026\Julio\Solicitud.xlsx"
   pause
   exit /b 1
 )
@@ -57,7 +57,7 @@ if errorlevel 1 goto :fail
 
 echo [6/6] Recomendacion:
 echo - Si Diferencias=0 en comparacion, puedes activar BH_READ_FROM_DB=1 en .env
-echo - Luego ejecuta reiniciar-bh.bat
+echo - Luego ejecuta reiniciar-bh.bat (o scripts\reiniciar-bh.bat)
 echo.
 echo OK: verificacion completada.
 pause

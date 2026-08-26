@@ -1,6 +1,11 @@
 # Solo reconstruye frontend/dist (sin levantar servidor).
 $ErrorActionPreference = "Stop"
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir = $PSScriptRoot
+$Root = if ((Split-Path -Leaf $ScriptDir) -eq "scripts") {
+    Split-Path -Parent $ScriptDir
+} else {
+    $ScriptDir
+}
 Set-Location (Join-Path $Root "frontend")
 if (-not (Test-Path "node_modules")) { npm install }
 npm run build

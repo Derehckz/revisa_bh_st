@@ -363,12 +363,16 @@ Tras cambiar `.env`, **reiniciar uvicorn**.
 
 ### Arranque rápido (web) — recomendado en Windows
 
+En la **raíz** solo quedan atajos de doble clic. La lógica vive en [`scripts/`](scripts/).
+
 | Archivo | Uso |
 |---------|-----|
-| **[`start-bh.bat`](start-bh.bat)** | **Oficina / profesional:** un solo puerto (`:8000`), UI embebida en la API |
+| **[`start-bh.bat`](start-bh.bat)** | **Oficina:** un solo puerto (`:8000`), UI embebida |
+| [`reiniciar-bh.bat`](reiniciar-bh.bat) | Reinicio tras cambiar Python / `.env` |
 | [`stop-bh.bat`](stop-bh.bat) | Detiene el servidor |
-| [`build-web.bat`](build-web.bat) | Solo regenera `frontend/dist` |
 | [`start-web.bat`](start-web.bat) | Desarrollo: API + Vite (`:5173`) con hot-reload |
+| [`scripts/build-web.bat`](scripts/build-web.bat) | Solo regenera `frontend/dist` |
+| [`scripts/verificar-periodo.bat`](scripts/verificar-periodo.bat) | Diagnóstico Excel ↔ BD de un mes |
 
 **Uso diario (oficina):** doble clic en `start-bh.bat` → se abre **http://127.0.0.1:8000/**  
 Primera vez: **Ajustes** → pegar `BH_API_KEY` del `.env`.
@@ -376,8 +380,8 @@ Primera vez: **Ajustes** → pegar `BH_API_KEY` del `.env`.
 Desde PowerShell:
 
 ```powershell
-.\start-bh.ps1          # build automático si falta dist
-.\start-bh.ps1 -Rebuild # fuerza npm run build
+.\scripts\start-bh.ps1          # build automático si falta dist
+.\scripts\start-bh.ps1 -Rebuild # fuerza npm run build
 .\stop-bh.bat
 ```
 
@@ -543,6 +547,8 @@ python db/check_runs.py
 
 ```text
 .
+├── start-bh.bat / reiniciar-bh.bat / stop-bh.bat / start-web.bat   # Atajos (doble clic)
+├── scripts/                # PowerShell/BAT de arranque, build, stop, verificar período
 ├── main.py                 # Orquestador CLI
 ├── lib/                    # Núcleo de negocio (stages, mail, locks, sync…)
 ├── etapas/                 # Entrypoints CLI oficiales 0–10
@@ -552,21 +558,14 @@ python db/check_runs.py
 ├── alembic/                # Migraciones PostgreSQL
 ├── frontend/               # React (src/); node_modules/ no va al repo
 ├── tests/
-├── docs/                   # Toda la documentación del proyecto
-│   ├── README.md
-│   ├── CLI_FIRST.md
-│   ├── RUNBOOK.md
-│   ├── API_CONTRACT.md
-│   ├── PLAN_OPERACION_WEB.md
-│   └── qa/                 # Checklists por épica
+├── docs/                   # Documentación + ejemplos (PDF)
 ├── BD-DOCENTES.xlsx        # Maestro operativo (raíz)
 ├── PROVISIONADOS ACUMULADOS.xlsx
-├── EjemploEnvioBoleta.pdf  # Adjunto de ejemplo (config)
 ├── requirements.txt
 └── .env.example
 ```
 
-**No versionar:** carpetas `2024/`…`2026/` (meses), `.state/`, `.env`, `node_modules/`, backups `*_backup_*.zip`, logs.
+**No versionar:** carpetas `2024/`…`2026/` (meses), `.state/`, `.backups/`, `.env`, `node_modules/`, backups `*_backup_*.zip`, logs.
 
 ---
 

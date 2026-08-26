@@ -320,19 +320,51 @@ def resolver_conflicto(ruta_original: str, politica: Optional[str] = None) -> Op
     return nueva
 
 
-def backup_file(path: Optional[str]) -> Optional[str]:
-    """Crear un backup ZIP del archivo indicado (si existe). Devuelve la ruta del zip o None."""
+def _file_backup_dir() -> str:
+    """Carpeta canónica para ZIP de archivos (no ensucia la raíz del repo)."""
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    path = os.path.join(root, ".backups", "files")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def backup_file(path: Optional[str], *, keep: int = 30) -> Optional[str]:
+    """Crear un backup ZIP del archivo indicado (si existe). Devuelve la ruta del zip o None.
+
+    Los ZIP van a ``.backups/files/`` (no al lado del Excel en la raíz).
+    """
     try:
         if not path or not os.path.exists(path):
             return None
         import zipfile
-        base = os.path.splitext(path)[0]
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        dest = f"{base}_backup_{timestamp}.zip"
-        with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED) as zf:
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        stem = os.path.splitext(os.path.basename(path))[0]
+        backup_dir = _file_backup_dir()
+        dest = os.path.join(backup_dir, f"{stem}_backup_{stamp}.zip")
+        # Evitar colisión si hay varios backups en el mismo segundo
+        if os.path.exists(dest):
+            dest = os.path.join(backup_dir, f"{stem}_backup_{stamp}_{uuid.uuid4().hex[:6]}.zip")
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.write(path, arcname=os.path.basename(path))
+        if keep > 0:
+            prefix = f"{stem}_backup_"
+            siblings = sorted(
+                (
+                    os.path.join(backup_dir, name)
+                    for name in os.listdir(backup_dir)
+                    if name.startswith(prefix) and name.endswith(".zip")
+                ),
+                key=os.path.getmtime,
+                reverse=True,
+            )
+            for old in siblings[keep:]:
+                try:
+                    os.remove(old)
+                except OSError:
+                    pass
         return dest
-    except (OSError, zipfile.BadZipFile) as e:
+    except Exception:
         return None
 
 

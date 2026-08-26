@@ -12,7 +12,7 @@ Guía operativa para levantar, validar y diagnosticar el backend (pipeline + Pos
 4. Avance y Excel deben coincidir persona/monto/estado. Si no, sincroniza (paso 0 ya hecho: import/snapshot) o avisa.
 5. Cierre: pasos 6–10, checklist, OK Contabilidad, **Cerrar mes**. Eso no es «Ejecutar pendientes».
 6. Backup: Ajustes → Crear backup ahora. Restore: `herramientas/restore_postgres.ps1`.
-7. Si cambias código Python: `reiniciar-bh.bat`. La UI se reconstruye al arrancar si hay cambios en `frontend/src`.
+7. Si cambias código Python: `reiniciar-bh.bat` (raíz). La UI se reconstruye al arrancar si hay cambios en `frontend/src`.
 
 ## 1) Pre-requisitos
 
@@ -239,8 +239,8 @@ Acción:
 
 ### Quién reinicia / mantiene el servidor
 
-- Responsable local: operador que ejecuta `start-bh.ps1` (o el banner de reinicio en la UI).
-- Si la API no responde: reiniciar con `.\start-bh.ps1` desde la raíz del repo; verificar `/health`.
+- Responsable local: operador que ejecuta `scripts/start-bh.ps1` (o el banner de reinicio en la UI).
+- Si la API no responde: reiniciar con `.\reiniciar-bh.bat` desde la raíz del repo; verificar `/health`.
 
 ### Backups PostgreSQL
 

@@ -1,7 +1,7 @@
 # Arranque rápido del stack web (API + Vite).
 # Uso:
-#   powershell -ExecutionPolicy Bypass -File .\start-web.ps1
-#   o doble clic en start-web.bat
+#   powershell -ExecutionPolicy Bypass -File .\scripts\start-web.ps1
+#   o doble clic en start-web.bat (raíz)
 
 param(
     [switch]$NoBrowser,
@@ -11,7 +11,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir = $PSScriptRoot
+$Root = if ((Split-Path -Leaf $ScriptDir) -eq "scripts") {
+    Split-Path -Parent $ScriptDir
+} else {
+    $ScriptDir
+}
 Set-Location $Root
 
 function Test-PortListen([int]$Port) {
@@ -38,7 +43,7 @@ $env:PYTHONPATH = "$Root;$Root\lib"
 
 if ($Restart) {
     Write-Host "Reiniciando API (puerto $ApiPort)..." -ForegroundColor Cyan
-    & (Join-Path $Root "stop-web.ps1") -ApiPort $ApiPort -WebPort $WebPort | Out-Host
+    & (Join-Path $Root "scripts\stop-web.ps1") -ApiPort $ApiPort -WebPort $WebPort | Out-Host
     Start-Sleep -Seconds 1
 }
 
@@ -74,4 +79,4 @@ if (-not $NoBrowser) {
 
 Write-Host ""
 Write-Host "Listo. En la web: Ajustes -> pega BH_API_KEY de tu .env (solo la 1a vez)." -ForegroundColor Cyan
-Write-Host "Para detener: .\stop-web.bat  o cierra las ventanas de API/Vite." -ForegroundColor DarkGray
+Write-Host "Para detener: .\stop-bh.bat  o cierra las ventanas de API/Vite." -ForegroundColor DarkGray

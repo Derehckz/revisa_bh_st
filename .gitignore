@@ -61,9 +61,14 @@ htmlcov/
 
 # --- Backups y logs generados ---
 *_backup_*.zip
+.backups/
 *.log
 *.jsonl
 revision_carpetas.xlsx
+
+# Basura / copias sueltas en raíz (usar 2026/<Mes>/Solicitud.xlsx)
+/Solicitud.xlsx
+
 
 # --- IDE / SO ---
 .idea/

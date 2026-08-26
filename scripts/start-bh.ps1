@@ -1,5 +1,5 @@
 # Arranque profesional: un solo puerto (API + UI embebida).
-# Uso: doble clic start-bh.bat  |  .\start-bh.ps1
+# Uso: doble clic start-bh.bat (raíz)  |  .\scripts\start-bh.ps1
 #
 # Requiere frontend/dist (se construye solo si falta).
 # Desarrollo con hot-reload: usa start-web.bat (API + Vite).
@@ -12,7 +12,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir = $PSScriptRoot
+$Root = if ((Split-Path -Leaf $ScriptDir) -eq "scripts") {
+    Split-Path -Parent $ScriptDir
+} else {
+    $ScriptDir
+}
 Set-Location $Root
 
 $LogDir = Join-Path $Root "logs"
@@ -136,7 +141,7 @@ $env:PYTHONPATH = "$Root;$Root\lib"
 
 if ($Restart) {
     Write-Host "Reiniciando servidor (liberando puerto $Port)..." -ForegroundColor Cyan
-    & (Join-Path $Root "stop-web.ps1") -ApiPort $Port | Out-Host
+    & (Join-Path $Root "scripts\stop-web.ps1") -ApiPort $Port | Out-Host
     Start-Sleep -Seconds 1
 }
 

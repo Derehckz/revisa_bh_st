@@ -46,7 +46,7 @@
     {
       "label": "BH: Build frontend (dist)",
       "type": "shell",
-      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}/build-web.ps1\"",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}/scripts/build-web.ps1\"",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -72,7 +72,7 @@
     {
       "label": "BH: Start BH (script Windows)",
       "type": "shell",
-      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}/start-bh.ps1\" -NoBrowser",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}/scripts/start-bh.ps1\" -NoBrowser",
       "options": {
         "cwd": "${workspaceFolder}"
       },
